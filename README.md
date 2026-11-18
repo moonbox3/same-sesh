@@ -2,12 +2,14 @@
 
 **Reopen your AI terminal sessions after a restart on macOS or Windows.**
 
+*Coming soon for Linux.*
+
 Your coding assistant keeps the conversation. same-sesh remembers which
 conversations were open, where you were working, and the last prompt when it’s
 available. A background watcher saves that information about every 30 seconds.
 After a restart, one command reopens the sessions it can identify.
 
-![Illustrated macOS and Windows previews showing a saved coding assistant, working folder, and last prompt. All sessions are synthetic.](assets/same-sesh-preview.png)
+![same-sesh illustration showing Copilot and Claude terminal sessions reopening after a restart on macOS and Windows.](assets/same-sesh-hero.png)
 
 ## Quick start
 
