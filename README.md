@@ -26,6 +26,8 @@ cd same-sesh
 | List saved sessions | `./same-sesh` | `.\same-sesh.cmd` | `./same-sesh` |
 | Preview restore | `./same-sesh restore --dry-run` | `.\same-sesh.cmd restore -DryRun` | `./same-sesh restore --dry-run` |
 | Restore after a restart | `./same-sesh restore` | `.\same-sesh.cmd restore` | `./same-sesh restore` |
+| [Save a named snapshot](#save-a-named-snapshot) | `./same-sesh snapshot --name release` | `.\same-sesh.cmd snapshot -Name release` | `./same-sesh snapshot --name release` |
+| Restore by name | `./same-sesh restore --name release` | `.\same-sesh.cmd restore -Name release` | `./same-sesh restore --name release` |
 
 - **macOS:** Setup asks which terminal app to watch and installs a copy in
   `~/.local/share/same-sesh`. Use `same-sesh` from anywhere once
@@ -66,11 +68,7 @@ terminals, or new tmux windows for saved tmux panes.
 Use a name for a group of sessions you want to come back to later. Use
 `history` to see your named snapshots and their save dates.
 
-| Task | macOS and Linux | Windows |
-| --- | --- | --- |
-| Save | `./same-sesh snapshot --name "Before deploy"` | `.\same-sesh.cmd snapshot -Name "Before deploy"` |
-| Restore | `./same-sesh restore --name "Before deploy"` | `.\same-sesh.cmd restore -Name "Before deploy"` |
-
+Put names with spaces in quotes, as in `"Before deploy"`.
 You can add `--dry-run` (Windows: `-DryRun`) to preview a named restore.
 Names are case-insensitive and can contain up to 64 letters, numbers, spaces,
 hyphens, or underscores. Start with a letter or number and choose a new name
