@@ -357,14 +357,29 @@ function epoch() {
     if (!started) throw Error('Cannot determine login epoch');
     return new Date(started).toISOString();
 }
-function snapshots() {
-    var paths = names(state + '/history').filter(function(n) { return /\.json$/.test(n); }).map(function(n) { return state + '/history/' + n; });
-    if (exists(state + '/last.json')) paths.push(state + '/last.json');
-    return paths.map(function(p) {
-        var s = json(p);
-        if (s.version !== 1 || !Array.isArray(s.tabs) || !isFinite(Date.parse(s.takenAt))) throw Error('Invalid snapshot: ' + p);
-        return s;
-    }).sort(function(a,b) { return Date.parse(a.takenAt)-Date.parse(b.takenAt); });
+function snapshotFile(p) {
+    var s = json(p);
+    if (!s || s.version !== 1 || !Array.isArray(s.tabs) || !isFinite(Date.parse(s.takenAt))) throw Error('Invalid snapshot: ' + p);
+    return s;
+}
+function snapshots(named) {
+    var directory = state + (named ? '/named' : '/history');
+    var paths = names(directory).filter(function(n) {
+        return /\.json$/.test(n) && (!named || n.indexOf('snapshot-') === 0);
+    }).map(function(n) { return directory + '/' + n; });
+    if (!named && exists(state + '/last.json')) paths.push(state + '/last.json');
+    return paths.map(snapshotFile).sort(function(a,b) { return Date.parse(a.takenAt)-Date.parse(b.takenAt); });
+}
+function namedPath(name) {
+    if (!/^[A-Za-z0-9]/.test(name) || name.length > 64 || /[^A-Za-z0-9 _-]/.test(name) || / $/.test(name)) {
+        throw Error('Use 1-64 letters, numbers, spaces, hyphens or underscores, starting with a letter or number and with no trailing space.');
+    }
+    return state + '/named/snapshot-' + name.toLowerCase() + '.json';
+}
+function namedSnapshot(name) {
+    var path = namedPath(name);
+    if (!exists(path)) throw Error('No snapshot named: ' + name);
+    return snapshotFile(path);
 }
 function select(all, currentEpoch, marker, index) {
     if (!all.length) return null;
@@ -383,9 +398,17 @@ function select(all, currentEpoch, marker, index) {
     });
     return pick;
 }
-function save(tabs, currentEpoch) {
+function save(tabs, currentEpoch, name) {
+    var path = name === undefined ? null : namedPath(name);
+    if (path && exists(path)) throw Error('Snapshot name already exists: ' + name);
+    if (path && !tabs.length) throw Error('No live terminals; named snapshot was not saved.');
     if (!tabs.length) return null;
     var snap = {version:1,takenAt:new Date().toISOString(),epoch:currentEpoch,os:'macos',terminal:terminal,tabs:tabs};
+    if (path) {
+        snap.name = name;
+        write(path,JSON.stringify(snap,null,2));
+        return snap;
+    }
     var previous = json(state + '/last.json');
     if (previous && (previous.epoch !== currentEpoch || previous.tabs.map(key).sort().join('\n') !== tabs.map(key).sort().join('\n'))) {
         write(state + '/history/' + previous.takenAt.replace(/[^0-9]/g,'') + '.json', JSON.stringify(previous,null,2));
@@ -419,7 +442,7 @@ function workspaceIds(tree) {
     (tree.windows || []).forEach(function(w) { (w.workspaces || []).forEach(function(ws) { out[ws.ref] = ws.id; }); });
     return out;
 }
-function restore(s, dry) {
+function restore(s, dry, named) {
     if (!s) { show(s); return; }
     var tree = inventory();
     var live = {}, liveSessions = {}, pending = [], currentEpoch = epoch(), ids = workspaceIds(tree), observed = [], owners = {};
@@ -479,7 +502,7 @@ function restore(s, dry) {
             write(receiptFile,JSON.stringify(receipts));
         }
     });
-    if (!dry) write(state + '/restored-epoch.txt',currentEpoch);
+    if (!dry && !named) write(state + '/restored-epoch.txt',currentEpoch);
     console.log((dry ? 'Would open ' : 'Opened ') + pending.length + ' terminals.');
 }
 
@@ -647,7 +670,7 @@ function setup(yes, startWatcher) {
     console.log('Ready. After a restart, run: same-sesh restore');
 }
 
-function locked(fn) {
+function locked(fn, wait) {
     mkdir(state);
     var lock = state + '/snapshot.lock';
     // touch opens an existing inode without replacing it: concurrent writers lock the same file.
@@ -655,22 +678,33 @@ function locked(fn) {
     var f = $.NSFileHandle.fileHandleForWritingAtPath(lock);
     if (f.isNil()) throw Error('Cannot open snapshot lock');
     ObjC.bindFunction('flock',['int',['int','int']]);
-    if ($.flock(f.fileDescriptor,6) !== 0) { f.closeFile; return; } // LOCK_EX | LOCK_NB
+    if ($.flock(f.fileDescriptor,wait ? 2 : 6) !== 0) {
+        f.closeFile;
+        if (wait) throw Error('Cannot lock snapshot store');
+        return;
+    }
     try { return fn(); } finally { $.flock(f.fileDescriptor,8); f.closeFile; }
 }
 function run(args) {
-    var command = args.shift() || 'list', dry = false, index = null, yes = false;
+    var command = args.shift() || 'list', dry = false, index = null, yes = false, name;
     while (args.length) {
         var option = args.shift();
         if (option === '--terminal') { terminalChosen = true; terminal = args.shift(); if (['cmux','terminal','iterm2','ghostty'].indexOf(terminal)<0) throw Error('Choose cmux, terminal, iterm2, or ghostty'); }
         else if (option === '--yes' || option === '-y') yes = true;
         else if (option === '--dry-run' || option === '-DryRun') dry = true;
+        else if (option === '--name' || option === '-Name') {
+            if (!args.length) throw Error('Provide a snapshot name');
+            name = args.shift();
+            namedPath(name);
+        }
         else if (option === '--index' || option === '-Index') {
             var n = args.shift(); if (!/^\d+$/.test(n || '')) throw Error('Index must be a nonnegative integer'); index = Number(n);
         } else throw Error('Unknown option: ' + option);
     }
+    if (name !== undefined && command !== 'snapshot' && command !== 'restore') throw Error('Use --name with snapshot or restore');
+    if (name !== undefined && index !== null) throw Error('Choose either --name or --index');
     if (command === 'help' || command === '--help') {
-        console.log('same-sesh [setup|status|pause|resume|list|snapshot|restore|history|watch|install|uninstall]\nrestore: --dry-run, --index N\nsetup: --yes, --terminal cmux|terminal|iterm2|ghostty\nNative apps require macOS Automation access.'); return;
+        console.log('same-sesh [setup|status|pause|resume|list|snapshot|restore|history|watch|install|uninstall]\nsnapshot: --name NAME\nrestore: --dry-run, --index N or --name NAME\nsetup: --yes, --terminal cmux|terminal|iterm2|ghostty\nNative apps require macOS Automation access.'); return;
     }
     if (['cmux','terminal','iterm2','ghostty'].indexOf(terminal)<0) throw Error('Unsupported terminal setting: ' + terminal);
     if (command === 'setup' || command === 'install' || command === 'resume') return setup(yes,command !== 'setup');
@@ -678,7 +712,11 @@ function run(args) {
     if (command === 'pause') return pause();
     if (command === 'tick') return tick();
     if (command === 'uninstall') { service(false); return; }
-    if (command === 'snapshot') return locked(function() { var s = save(capture(),epoch()); console.log(s ? 'Saved ' + s.tabs.length + ' terminals.' : 'No live terminals; snapshot kept.'); });
+    if (command === 'snapshot') return locked(function() {
+        var s = save(capture(),epoch(),name);
+        if (name !== undefined) console.log('Saved snapshot "' + name + '" (' + s.tabs.length + ' terminals).');
+        else console.log(s ? 'Saved ' + s.tabs.length + ' terminals.' : 'No live terminals; snapshot kept.');
+    }, name !== undefined);
     if (command === 'watch') {
         while (true) {
             try { locked(function() { save(capture(),epoch()); }); } catch (e) { warn(String(e)); }
@@ -686,9 +724,19 @@ function run(args) {
         }
     }
     if (command === 'history') {
-        snapshots().reverse().forEach(function(s,i) { console.log(i + ': ' + s.takenAt + ' — ' + s.tabs.length + ' terminals'); }); return;
+        snapshots().reverse().forEach(function(s,i) { console.log(i + ': ' + s.takenAt + ' — ' + s.tabs.length + ' terminals'); });
+        var named = snapshots(true).reverse();
+        if (named.length) console.log('Named snapshots:');
+        named.forEach(function(s) {
+            console.log('  ' + String(s.name || '').replace(/[^A-Za-z0-9 _-]/g,'') + ' | ' + s.takenAt + ' (' + s.tabs.length + ' terminals)');
+        });
+        return;
     }
     if (command !== 'list' && command !== 'restore') throw Error('Unknown command: ' + command);
+    if (name !== undefined) {
+        if (dry) return restore(namedSnapshot(name),true,true);
+        return locked(function() { restore(namedSnapshot(name),false,true); },true);
+    }
     var selected = select(snapshots(),epoch(),(read(state + '/restored-epoch.txt') || '').trim(),index);
     if (command === 'list') show(selected);
     else locked(function() { restore(selected,dry); });

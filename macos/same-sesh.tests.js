@@ -69,6 +69,14 @@ function run(args) {
         save([tabB],'new');
         assert(snapshots().length === 2,'changed state archives previous snapshot');
         save([tabB],'new'); assert(snapshots().length === 2,'unchanged state does not add history');
+        previous=read(state+'/last.json');
+        save([tabA],'new','Before deploy');
+        assert(namedSnapshot('BEFORE DEPLOY').tabs[0].sessionId===idA,'named lookup ignores case');
+        assert(snapshots(true)[0].name==='Before deploy','history can list the original name');
+        assert(read(state+'/last.json')===previous && snapshots().length===2,'named save leaves numbered history alone');
+        throws(function(){save([tabB],'new','before deploy');},'duplicate names are rejected');
+        throws(function(){save([],'new','Empty');},'empty named saves are rejected');
+        throws(function(){namedSnapshot('../outside');},'unsafe names are rejected');
         var folder=state+"/space ' ; $ literal";mkdir(folder);
         var restoreTab={cwd:folder,title:'literal title',tool:null,wasRunning:tricky,resume:'evil'};
         var command=restoreArgs(restoreTab);
@@ -128,6 +136,10 @@ function run(args) {
         write(state+'/restore-receipts.json',JSON.stringify([{epoch:'test-epoch',workspaceId:switchedWorkspace.id,key:key(tabA),createdAt:Date.now()-60000}]));
         restore({tabs:[tabA]},false);
         assert(opened.length===5,'expired startup receipt does not hide an exited tool');
+        write(state+'/restored-epoch.txt','previous marker');
+        cli(['restore','--name','Before deploy']);
+        assert(read(state+'/restored-epoch.txt')==='previous marker','named restore preserves automatic restore selection');
+        throws(function(){cli(['restore','--name','Before deploy','--index','0']);},'name and index are mutually exclusive');
         exec=realExec;capture=realCapture;epoch=realEpoch;
         var processes=parseProcesses('100 1 100 0 ?? /Applications/Test.app/Contents/MacOS/Test\n101 100 101 102 ttys001 login\n102 101 102 102 ttys001 -zsh\n103 102 102 102 ttys001 /usr/local/bin/copilot\n201 200 201 201 ttys001 -zsh');
         assert(processes[2].name==='zsh','login shell names normalize');

@@ -3,8 +3,8 @@ same-sesh: remember which AI CLI sessions were open in which terminal tabs,
 and reopen them after a restart.
 
   same-sesh              show what would be restored (where you left off)
-  same-sesh snapshot     record the current tabs once
-  same-sesh restore      reopen the recorded tabs   (-DryRun to preview, -Index N to pick from history)
+  same-sesh snapshot     record the current tabs once (-Name NAME to keep a named snapshot)
+  same-sesh restore      reopen tabs (-DryRun to preview, -Index N or -Name NAME to choose)
   same-sesh history      list older snapshots
   same-sesh status       show watcher status and last save
   same-sesh watch        snapshot every 30s until stopped
@@ -21,7 +21,8 @@ param(
     [string]$Command = 'list',
     [int]$Index = -1,
     [switch]$DryRun,
-    [int]$IntervalSeconds = 30
+    [int]$IntervalSeconds = 30,
+    [string]$Name
 )
 
 $ErrorActionPreference = 'Stop'
@@ -353,15 +354,53 @@ function Get-LiveTabs {
     @($tabs)
 }
 
-function Save-Snapshot {
+function Get-NamedSnapshotPath([string]$SnapshotName) {
+    if ($SnapshotName -cnotmatch '\A[A-Za-z0-9][A-Za-z0-9 _-]{0,63}\z' -or $SnapshotName.EndsWith(' ')) {
+        throw 'Use 1-64 letters, numbers, spaces, hyphens or underscores, starting with a letter or number and with no trailing space.'
+    }
+    Join-Path (Join-Path $StateDir 'named') ('snapshot-' + $SnapshotName.ToLowerInvariant() + '.json')
+}
+
+function Read-NamedSnapshot([string]$SnapshotName) {
+    $path = Get-NamedSnapshotPath $SnapshotName
+    if (-not (Test-Path -LiteralPath $path)) { throw "No snapshot named: $SnapshotName" }
+    $snap = Read-Snapshot $path
+    if (-not $snap) { throw "Could not read snapshot named: $SnapshotName" }
+    $snap
+}
+
+function Save-Snapshot([string]$SnapshotName) {
+    $namedPath = $null
+    if ($PSBoundParameters.ContainsKey('SnapshotName')) {
+        $namedPath = Get-NamedSnapshotPath $SnapshotName
+        if (Test-Path -LiteralPath $namedPath) { throw "Snapshot name already exists: $SnapshotName" }
+    }
     $tabs = @(Get-LiveTabs)
     # Never record "nothing open": that is exactly the state right after a restart.
+    if ($namedPath -and $tabs.Count -eq 0) { throw 'No live terminals; named snapshot was not saved.' }
     if ($tabs.Count -eq 0) { return $null }
-    New-Item -ItemType Directory -Force $HistoryDir | Out-Null
     $snap = [ordered]@{
         version = 1; takenAt = (Get-Date).ToUniversalTime().ToString('o'); epoch = (Get-Epoch)
         os = 'windows'; terminal = 'windows-terminal'; tabs = @($tabs)
     }
+    if ($namedPath) {
+        $snap.name = $SnapshotName
+        $directory = Split-Path -Parent $namedPath
+        [void][IO.Directory]::CreateDirectory($directory)
+        $tmp = Join-Path $directory ('.snapshot-' + [guid]::NewGuid() + '.tmp')
+        try {
+            Write-Json $tmp $snap
+            # Publish the complete file without overwriting another writer's snapshot.
+            [IO.File]::Move($tmp, $namedPath)
+        } catch {
+            if (Test-Path -LiteralPath $namedPath) { throw "Snapshot name already exists: $SnapshotName" }
+            throw
+        } finally {
+            Remove-Item -LiteralPath $tmp, "$tmp.tmp" -Force -ErrorAction SilentlyContinue
+        }
+        return $snap
+    }
+    New-Item -ItemType Directory -Force $HistoryDir | Out-Null
     $prev = if (Test-Path $LastFile) { Read-Snapshot $LastFile }
     if ($prev) {
         $old = (@($prev.tabs) | ForEach-Object { Get-TabKey $_ } | Sort-Object) -join "`n"
@@ -478,8 +517,9 @@ function ConvertTo-WtTab($Tab) {
     "new-tab --title `"$title`" -d `"$cwd`" $run"
 }
 
-function Restore-Snapshot {
-    $snap = Select-Snapshot
+function Restore-Snapshot([string]$SnapshotName) {
+    $named = $PSBoundParameters.ContainsKey('SnapshotName')
+    $snap = if ($named) { Read-NamedSnapshot $SnapshotName } else { Select-Snapshot }
     if (-not $snap) { Write-Host 'No snapshot yet. Run: same-sesh snapshot' -ForegroundColor Yellow; return }
     $live = @(Get-LiveTabs)
     $liveSessions = @($live | Where-Object sessionId | ForEach-Object { "$($_.tool)|$($_.sessionId)" })
@@ -496,8 +536,10 @@ function Restore-Snapshot {
     $wtArgs = '-w 0 ' + (($todo | ForEach-Object { ConvertTo-WtTab $_ }) -join ' ; ')
     if ($DryRun) { Write-Host "  Would run:`n  wt $wtArgs"; return }
     Start-Process wt.exe -ArgumentList $wtArgs
-    New-Item -ItemType Directory -Force $StateDir | Out-Null
-    Set-Content -LiteralPath $MarkerFile -Value (Get-Epoch) -Encoding ASCII
+    if (-not $named) {
+        New-Item -ItemType Directory -Force $StateDir | Out-Null
+        Set-Content -LiteralPath $MarkerFile -Value (Get-Epoch) -Encoding ASCII
+    }
     Write-Host "  Reopened $($todo.Count) tab$(if ($todo.Count -ne 1) { 's' })." -ForegroundColor Green
 }
 
@@ -524,9 +566,19 @@ function Show-WatcherStatus {
 }
 
 # --- Commands ---------------------------------------------------------------
+$named = $PSBoundParameters.ContainsKey('Name')
+if ($named) {
+    if ($Command -notin 'snapshot', 'restore') { throw 'Use -Name with snapshot or restore.' }
+    if ($PSBoundParameters.ContainsKey('Index')) { throw 'Choose either -Name or -Index.' }
+}
 switch ($Command) {
     'help' { Get-Content -LiteralPath $PSCommandPath -TotalCount 15 | Select-Object -Skip 1 | Write-Host }
     'snapshot' {
+        if ($named) {
+            $s = Save-Snapshot -SnapshotName $Name
+            Write-Host ('Saved snapshot "{0}" ({1} tabs).' -f $Name, @($s.tabs).Count)
+            return
+        }
         $s = Save-Snapshot
         if ($s) { Show-Snapshot (Read-Snapshot $LastFile) } else { Write-Host 'No terminal tabs open; nothing recorded.' -ForegroundColor Yellow }
     }
@@ -542,9 +594,19 @@ switch ($Command) {
             Write-Host ("  #{0,-3} {1,-10} {2}   {3}" -f $i, (Format-Ago $s.when), $s.when.ToLocalTime().ToString('ddd HH:mm'), $tools)
             $i++
         }
-        Write-Host '  Restore one with: same-sesh restore -Index N' -ForegroundColor DarkGray
+        $directory = Join-Path $StateDir 'named'
+        if (Test-Path -LiteralPath $directory) {
+            $saved = @(Get-ChildItem -LiteralPath $directory -Filter 'snapshot-*.json' -File |
+                ForEach-Object { Read-Snapshot $_.FullName } | Sort-Object when -Descending)
+            if ($saved.Count) { Write-Host 'Named snapshots:' }
+            foreach ($s in $saved) {
+                $label = $s.name -replace '[^A-Za-z0-9 _-]', ''
+                Write-Host ("  {0} | {1:yyyy-MM-dd HH:mm} ({2} tabs)" -f $label, $s.when.ToLocalTime(), @($s.tabs).Count)
+            }
+        }
+        Write-Host '  Restore with: same-sesh restore -Index N or -Name NAME' -ForegroundColor DarkGray
     }
-    'restore' { Restore-Snapshot }
+    'restore' { if ($named) { Restore-Snapshot -SnapshotName $Name } else { Restore-Snapshot } }
     'status' { Show-WatcherStatus }
     'watch' {
         $created = $false

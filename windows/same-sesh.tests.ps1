@@ -158,7 +158,26 @@ try {
         $watcher.Dispose()
     }
     $previous = [IO.File]::ReadAllText($LastFile)
+    $pin = Save-Snapshot -SnapshotName 'Before deploy'
+    Assert-Equal $pin.name 'Before deploy' 'Named snapshot keeps original casing'
+    Assert-Equal (Read-NamedSnapshot 'BEFORE DEPLOY').tabs[0].sessionId $second 'Named lookup ignores case'
+    Assert-Equal ([IO.File]::ReadAllText($LastFile)) $previous 'Named save leaves last snapshot alone'
+    Assert-Equal @(Get-AllSnapshots).Count 1 'Named save leaves numbered history alone'
+    $duplicateRejected = $false
+    try { $null = Save-Snapshot -SnapshotName 'before deploy' } catch { $duplicateRejected = $_.Exception.Message -like 'Snapshot name already exists*' }
+    Assert-Equal $duplicateRejected $true 'Duplicate names are rejected'
+    $unsafeRejected = $false
+    try { $null = Read-NamedSnapshot '../outside' } catch { $unsafeRejected = $_.Exception.Message -like 'Use 1-64*' }
+    Assert-Equal $unsafeRejected $true 'Unsafe names are rejected'
     $script:fakeProcesses = @()
+    $emptyNamedRejected = $false
+    try { $null = Save-Snapshot -SnapshotName 'Empty' } catch { $emptyNamedRejected = $_.Exception.Message -like 'No live terminals*' }
+    Assert-Equal $emptyNamedRejected $true 'Empty named saves are rejected'
+    $MarkerFile = Join-Path $StateDir 'restored-epoch.txt'
+    function Start-Process { param($FilePath, $ArgumentList) $script:namedLaunch = $ArgumentList }
+    Restore-Snapshot -SnapshotName 'Before deploy' 6>$null
+    Assert-Equal ($script:namedLaunch -like '*-EncodedCommand*') $true 'Named restore uses the normal launcher'
+    Assert-Equal (Test-Path -LiteralPath $MarkerFile) $false 'Named restore preserves automatic restore selection'
     Assert-Equal (Save-Snapshot) $null 'Empty state is not recorded'
     Assert-Equal ([IO.File]::ReadAllText($LastFile)) $previous 'Empty state preserves last snapshot'
 

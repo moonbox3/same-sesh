@@ -81,6 +81,24 @@ class TmuxTests(unittest.TestCase):
             [(FIRST, str(self.cwd), "First fixture"), (SECOND, str(self.cwd), "Second fixture")],
         )
 
+    def test_named_snapshots_stay_separate_from_automatic_history(self):
+        self.cli("snapshot", "--name", "Empty", error="No supported live terminals")
+        self.pane("/bin/sh")
+        previous = self.snapshot()
+        self.assertIn('Saved snapshot "Before deploy"', self.cli("snapshot", "--name", "Before deploy"))
+        self.cli("snapshot", "--name", "BEFORE DEPLOY", error="already exists")
+        self.cli("restore", "--name", "../outside", error="Use 1-64")
+        self.cli("restore", "--name", "missing", error="No snapshot named")
+        self.cli("restore", "--name", "Before deploy", "--index", "0", error="not allowed")
+        history = self.cli("history")
+        self.assertEqual(len([line for line in history.splitlines() if line.startswith("0:")]), 1)
+        self.assertIn("Named snapshots:\n  Before deploy", history)
+        self.assertEqual(json.loads((self.state / "last.json").read_text()), previous)
+        self.tmux("kill-server")
+        self.assertIn("Would open 1", self.cli("restore", "--name", "BEFORE DEPLOY", "--dry-run"))
+        self.assertIn("Opened 1", self.cli("restore", "--name", "Before deploy"))
+        self.assertFalse((self.state / "restored-epoch.json").exists())
+
     def test_restore_prefers_previous_instance_and_passes_folder_as_data(self):
         self.exe.unlink()
         self.exe.write_text("#!/bin/sh\nprintf '%s\\n' \"$PATH\" > \"$COPILOT_HOME/launch-path\"\n"

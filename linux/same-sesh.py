@@ -363,14 +363,43 @@ def history_names(parent):
     return sorted((name for name in os.listdir(parent) if name.endswith(".json")), reverse=True)
 
 
-def snapshot():
+def named_path(name):
+    if (not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9 _-]{0,63}", name)
+            or name.endswith(" ")):
+        raise ValueError("Use 1-64 letters, numbers, spaces, hyphens or underscores, starting with a letter or number and with no trailing space.")
+    return STATE / "named" / f"snapshot-{name.lower()}.json"
+
+
+def named_snapshots():
+    directory = STATE / "named"
+    try:
+        with state_directory(directory) as parent:
+            paths = [directory / name for name in history_names(parent) if name.startswith("snapshot-")]
+    except FileNotFoundError:
+        return []
+    return sorted(filter(None, map(load_snapshot, paths)), key=timestamp, reverse=True)
+
+
+def snapshot(name=None):
+    path = named_path(name) if name is not None else None
+    if path is not None:
+        missing = object()
+        if read_json(path, missing) is not missing:
+            raise ValueError(f"Snapshot name already exists: {name}")
     tabs = [tab for _, tab in capture()]
     if not tabs:
+        if path is not None:
+            raise ValueError("No supported live terminals; named snapshot was not saved.")
         print("No supported live terminals; kept previous snapshot.")
         return
     hosts = {tab.get("terminal", "tmux") for tab in tabs}
     snap = dict(version=1, takenAt=iso(), epoch=epoch(), os="linux",
                 terminal=next(iter(hosts)) if len(hosts) == 1 else "mixed", tabs=tabs)
+    if path is not None:
+        snap["name"] = name
+        write_json(path, snap)
+        print(f'Saved snapshot "{name}" ({len(tabs)} panes).')
+        return
     previous = load_snapshot(STATE / "last.json")
     if previous and (previous["epoch"] != snap["epoch"] or
                      sorted(map(surface_key, previous["tabs"])) != sorted(map(surface_key, tabs))):
@@ -524,7 +553,7 @@ def open_windows_terminal(command):
         raise ValueError(f"Unable to launch Windows Terminal: {error or result.returncode}")
 
 
-def restore(snap, current, dry):
+def restore(snap, current, dry, *, mark_epoch=True):
     if not snap:
         show(snap)
         return
@@ -597,7 +626,8 @@ def restore(snap, current, dry):
     if not dry:
         if had_receipts:
             write_json(receipt_path, dict(epoch=current, entries=pending))
-        write_json(STATE / "restored-epoch.json", current)
+        if mark_epoch:
+            write_json(STATE / "restored-epoch.json", current)
     print(f'{"Would open" if dry else "Opened"} {len(plan)} panes.')
 
 
@@ -693,15 +723,18 @@ def status():
 def main():
     parser = argparse.ArgumentParser(prog="same-sesh")
     commands = parser.add_subparsers(dest="command")
-    for name in ("snapshot", "list", "history", "watch", "status", "install", "uninstall"):
+    for name in ("list", "history", "watch", "status", "install", "uninstall"):
         commands.add_parser(name)
+    commands.add_parser("snapshot").add_argument("--name")
     restore_parser = commands.add_parser("restore")
     restore_parser.add_argument("--dry-run", action="store_true")
-    restore_parser.add_argument("--index", type=int)
+    target = restore_parser.add_mutually_exclusive_group()
+    target.add_argument("--index", type=int)
+    target.add_argument("--name")
     args = parser.parse_args()
     try:
         if args.command == "snapshot":
-            locked(snapshot)
+            locked(lambda: snapshot(args.name))
         elif args.command == "watch":
             while True:
                 locked(snapshot)
@@ -714,10 +747,21 @@ def main():
         elif args.command == "history":
             for i, snap in enumerate(snapshots()):
                 print(f'{i}: {snap["takenAt"]} ({len(snap["tabs"])} panes)')
+            named = named_snapshots()
+            if named:
+                print("Named snapshots:")
+                for snap in named:
+                    print(f'  {terminal_text(snap.get("name", ""))} | {snap["takenAt"]} ({len(snap["tabs"])} panes)')
         elif args.command == "restore":
             def run():
+                named = args.name is not None
+                snap = load_snapshot(named_path(args.name)) if named else None
+                if named and snap is None:
+                    raise ValueError(f"No snapshot named: {args.name}")
                 current = epoch()
-                restore(select(snapshots(), current, args.index), current, args.dry_run)
+                if not named:
+                    snap = select(snapshots(), current, args.index)
+                restore(snap, current, args.dry_run, mark_epoch=not named)
 
             if args.dry_run:
                 run()

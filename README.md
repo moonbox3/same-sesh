@@ -61,6 +61,22 @@ scrollback and pane layouts are outside the snapshot. Restore opens new tabs in
 Windows Terminal, new workspaces in cmux, new windows in the other macOS
 terminals, or new tmux windows for saved tmux panes.
 
+## Save a named snapshot
+
+Use a name for a group of sessions you want to come back to later. Use
+`history` to see your named snapshots and their save dates.
+
+| Task | macOS and Linux | Windows |
+| --- | --- | --- |
+| Save | `./same-sesh snapshot --name "Before deploy"` | `.\same-sesh.cmd snapshot -Name "Before deploy"` |
+| Restore | `./same-sesh restore --name "Before deploy"` | `.\same-sesh.cmd restore -Name "Before deploy"` |
+
+You can add `--dry-run` (Windows: `-DryRun`) to preview a named restore.
+Names are case-insensitive and can contain up to 64 letters, numbers, spaces,
+hyphens, or underscores. Start with a letter or number and choose a new name
+for each save. Named snapshots live in `~/.same-sesh/named` and are kept
+separately from rotating history.
+
 ## Other commands
 
 Use the same launcher as in the Quick Start.
