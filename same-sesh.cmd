@@ -1,2 +1,2 @@
 @echo off
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0same-sesh.ps1" %*
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0windows\same-sesh.ps1" %*

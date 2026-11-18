@@ -32,11 +32,11 @@ if [ "${1:-}" = '--release' ]; then
     fi
 else
     installer_dir=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd) || installer_dir=''
-    if [ ! -f "$0" ] || [ -z "$installer_dir" ] || [ ! -f "$installer_dir/same-sesh" ]; then
+    if [ ! -f "$0" ] || [ -z "$installer_dir" ] || [ ! -f "$installer_dir/macos/same-sesh" ]; then
         echo 'Use install.sh from a local checkout, or specify --release VERSION SHA256.' >&2
         exit 1
     fi
-    setup_source="$installer_dir/same-sesh"
+    setup_source="$installer_dir/macos/same-sesh"
 fi
 # A piped installer must leave the wizard connected to the terminal.
 if [ -t 0 ]; then

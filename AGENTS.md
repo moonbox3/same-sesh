@@ -5,8 +5,9 @@ the task currently in progress: read it before starting.
 
 ## Layout
 
-The Windows implementation is in `same-sesh.ps1`; `same-sesh.cmd` only launches it. The script
-is organised in the order below, and each part is meant to be replaceable.
+Each platform folder holds its runtime and tests. Top-level launchers preserve
+checkout commands and existing Windows login entries. The Windows implementation
+is in `windows/same-sesh.ps1`. Its parts are designed to be replaceable.
 
 - **Terminal adapter, capture side** (`$TerminalHosts`, `Get-LiveTabs`): which
   processes host tabs. A tab is a direct child of a terminal host process.
@@ -22,7 +23,7 @@ is organised in the order below, and each part is meant to be replaceable.
 To add a tool, write a `Resolve-<Tool>` function and call it in the adapter
 chain inside `Get-LiveTabs`. Nothing else should need to change.
 
-The macOS implementation is the executable `same-sesh`, one JavaScript for
+The macOS implementation is the executable `macos/same-sesh`, one JavaScript for
 Automation file using built-in osascript/Foundation. `inventory` chooses cmux API inventory or native macOS process/TTY ownership;
 `capture` consumes that common surface inventory; `foreground` excludes nested/background agents;
 `resolveTool` reads session metadata. `save`/`select` share version-1 snapshot
@@ -31,7 +32,8 @@ the launchd agent. `setup` installs a stable native copy and checks watcher
 health; the optional npm launcher only bootstraps this native runtime.
 Terminal.app/iTerm2/Ghostty capture must remain process-only: Apple events can
 block under launchd even when they work interactively. Restore uses native
-scripting APIs and may require the user to approve macOS Automation access. `same-sesh.tests.js` contains synthetic macOS checks.
+scripting APIs and may require the user to approve macOS Automation access.
+`macos/same-sesh.tests.js` contains synthetic macOS checks.
 
 ## Constraints
 
@@ -65,7 +67,7 @@ scripting APIs and may require the user to approve macOS Automation access. `sam
 
 ## Testing
 
-On macOS run `./same-sesh.tests.js`. Use `SAME_SESH_STATE_DIR` for isolated live
+On macOS run `./macos/same-sesh.tests.js`. Use `SAME_SESH_STATE_DIR` for isolated live
 checks; never replace the user's real snapshots with test-only data. cmux socket
 access must allow Automation for the launchd watcher. One captured terminal is
 one live terminal surface, not a direct child of the cmux app. Claude macOS PID
@@ -74,7 +76,7 @@ time and cannot validate the process lifetime. Copilot may log outside its home
 directory; inspect the owning process's open log, never a child process's log.
 Do not close test terminals automatically: ask the user, then verify restore.
 
-Run `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\same-sesh.tests.ps1`
+Run `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\windows\same-sesh.tests.ps1`
 for dependency-free checks with synthetic sessions. Also test against live tabs:
 
 1. Open Windows Terminal tabs with the tool under test running in them.

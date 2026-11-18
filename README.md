@@ -96,8 +96,8 @@ trusted release announcement. The installer verifies the download before running
 
 ## Development
 
-- macOS: `./same-sesh.tests.js`
-- Windows: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\same-sesh.tests.ps1`
+- macOS: `./macos/same-sesh.tests.js`
+- Windows: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\windows\same-sesh.tests.ps1`
 
 Live close-and-restore was verified for Claude and Copilot in cmux and for
 Copilot in Terminal.app, iTerm2, and Ghostty. An actual macOS logout and login

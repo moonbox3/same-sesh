@@ -1,7 +1,10 @@
 #!/usr/bin/osascript -l JavaScript
 ObjC.import('Foundation');
 function run(args) {
-    var path = args[0] || './same-sesh';
+    var script = ObjC.deepUnwrap($.NSProcessInfo.processInfo.arguments).filter(function(arg) {
+        return /(^|\/)same-sesh\.tests\.js$/.test(arg);
+    })[0];
+    var path = args[0] || ObjC.unwrap($(script).stringByDeletingLastPathComponent) + '/same-sesh';
     var source = ObjC.unwrap($.NSString.stringWithContentsOfFileEncodingError(path,$.NSUTF8StringEncoding,null));
     eval(source.replace(/^#![^\n]*\n/, '').replace('function run(args)', 'function cli(args)'));
     terminal='cmux'; // tests are independent of the user's selected terminal
