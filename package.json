@@ -1,0 +1,12 @@
+{
+  "name": "same-sesh",
+  "version": "0.1.0-preview.1",
+  "description": "Remember and restore your terminal AI conversations",
+  "private": true,
+  "bin": { "same-sesh": "bin/same-sesh.cjs" },
+  "files": ["bin/same-sesh.cjs", "same-sesh", "README.md"],
+  "os": ["darwin"],
+  "engines": { "node": ">=18" },
+  "repository": { "type": "git", "url": "git+https://github.com/moonbox3/same-sesh.git" },
+  "scripts": { "test": "./same-sesh.tests.js" }
+}
