@@ -6,6 +6,7 @@ and reopen them after a restart.
   same-sesh snapshot     record the current tabs once
   same-sesh restore      reopen the recorded tabs   (-DryRun to preview, -Index N to pick from history)
   same-sesh history      list older snapshots
+  same-sesh status       show watcher status and last save
   same-sesh watch        snapshot every 30s until stopped
   same-sesh install      start the watcher at every login (uninstall removes it)
 
@@ -16,7 +17,7 @@ plain JSON with nothing Windows-specific in its shape, so other terminals
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('list', 'snapshot', 'restore', 'history', 'watch', 'install', 'uninstall', 'help')]
+    [ValidateSet('list', 'snapshot', 'restore', 'history', 'status', 'watch', 'install', 'uninstall', 'help')]
     [string]$Command = 'list',
     [int]$Index = -1,
     [switch]$DryRun,
@@ -33,6 +34,7 @@ $LastFile = Join-Path $StateDir 'last.json'
 $MarkerFile = Join-Path $StateDir 'restored-epoch.txt'
 $HistoryKeep = 40
 $RunKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+$WatcherMutexName = 'Local\same-sesh-watch'
 
 # --- Terminal adapter (capture side): which processes host tabs -------------
 $TerminalHosts = @('WindowsTerminal.exe')
@@ -131,7 +133,9 @@ function Read-Snapshot([string]$Path) {
     try {
         $s = Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json
         $s | Add-Member -NotePropertyName path -NotePropertyValue $Path -Force
-        $s | Add-Member -NotePropertyName when -NotePropertyValue ([datetime]::Parse($s.takenAt, $null, 'RoundtripKind')) -Force
+        $when = if ($s.takenAt -is [datetime]) { $s.takenAt }
+                else { [datetime]::Parse($s.takenAt, $null, 'RoundtripKind') }
+        $s | Add-Member -NotePropertyName when -NotePropertyValue $when -Force
         $s
     } catch { $null }
 }
@@ -497,9 +501,31 @@ function Restore-Snapshot {
     Write-Host "  Reopened $($todo.Count) tab$(if ($todo.Count -ne 1) { 's' })." -ForegroundColor Green
 }
 
+function Show-WatcherStatus {
+    $watcher = $null
+    if ([Threading.Mutex]::TryOpenExisting($WatcherMutexName, [ref]$watcher)) {
+        $watcher.Dispose()
+        Write-Host 'Watcher: running'
+    } else {
+        Write-Host 'Watcher: not running. Start it with same-sesh.cmd install.'
+    }
+
+    $snap = Read-Snapshot $LastFile
+    if ($snap) {
+        $when = $snap.when.ToLocalTime().ToString('yyyy-MM-dd HH:mm:ss zzz')
+        $count = @($snap.tabs).Count
+        $unit = if ($count -eq 1) { 'tab' } else { 'tabs' }
+        Write-Host ("Last saved: {0} ({1} {2})" -f $when, $count, $unit)
+    } elseif (Test-Path -LiteralPath $LastFile) {
+        Write-Host 'Last saved: snapshot could not be read.'
+    } else {
+        Write-Host 'Last saved: no snapshot yet.'
+    }
+}
+
 # --- Commands ---------------------------------------------------------------
 switch ($Command) {
-    'help' { Get-Content -LiteralPath $PSCommandPath -TotalCount 14 | Select-Object -Skip 1 | Write-Host }
+    'help' { Get-Content -LiteralPath $PSCommandPath -TotalCount 15 | Select-Object -Skip 1 | Write-Host }
     'snapshot' {
         $s = Save-Snapshot
         if ($s) { Show-Snapshot (Read-Snapshot $LastFile) } else { Write-Host 'No terminal tabs open; nothing recorded.' -ForegroundColor Yellow }
@@ -519,10 +545,11 @@ switch ($Command) {
         Write-Host '  Restore one with: same-sesh restore -Index N' -ForegroundColor DarkGray
     }
     'restore' { Restore-Snapshot }
+    'status' { Show-WatcherStatus }
     'watch' {
         $created = $false
-        $mutex = New-Object Threading.Mutex($true, 'Local\same-sesh-watch', [ref]$created)
-        if (-not $created) { Write-Host 'A watcher is already running.'; return }
+        $mutex = New-Object Threading.Mutex($true, $WatcherMutexName, [ref]$created)
+        if (-not $created) { $mutex.Dispose(); Write-Host 'A watcher is already running.'; return }
         try {
             New-Item -ItemType Directory -Force $StateDir | Out-Null
             $logFile = Join-Path $StateDir 'watch.log'
@@ -543,7 +570,7 @@ switch ($Command) {
                 Start-Sleep -Seconds $IntervalSeconds
             }
         }
-        finally { $mutex.ReleaseMutex() }
+        finally { $mutex.ReleaseMutex(); $mutex.Dispose() }
     }
     'install' {
         # conhost --headless keeps the watcher from flashing a console window at login.

@@ -140,8 +140,23 @@ try {
     $StateDir = Join-Path $testRoot 'snapshots'
     $HistoryDir = Join-Path $StateDir 'history'
     $LastFile = Join-Path $StateDir 'last.json'
+    $WatcherMutexName = 'Local\same-sesh-test-' + [guid]::NewGuid()
+    $status = @(Show-WatcherStatus 6>&1)
+    Assert-Equal ($status[0].ToString() -like 'Watcher: not running*') $true 'Status detects stopped watcher'
+    Assert-Equal $status[1].ToString() 'Last saved: no snapshot yet.' 'Status handles missing snapshot'
     $snap = Save-Snapshot
     Assert-Equal @($snap.tabs).Count 1 'Single-tab snapshot shape'
+    $created = $false
+    $watcher = New-Object Threading.Mutex($true, $WatcherMutexName, [ref]$created)
+    try {
+        $status = @(Show-WatcherStatus 6>&1)
+        $savedAt = [datetime]::Parse($snap.takenAt, $null, 'RoundtripKind').ToLocalTime().ToString('yyyy-MM-dd HH:mm:ss zzz')
+        Assert-Equal $status[0].ToString() 'Watcher: running' 'Status detects active watcher'
+        Assert-Equal $status[1].ToString() "Last saved: $savedAt (1 tab)" 'Status displays the saved timestamp'
+    } finally {
+        if ($created) { $watcher.ReleaseMutex() }
+        $watcher.Dispose()
+    }
     $previous = [IO.File]::ReadAllText($LastFile)
     $script:fakeProcesses = @()
     Assert-Equal (Save-Snapshot) $null 'Empty state is not recorded'

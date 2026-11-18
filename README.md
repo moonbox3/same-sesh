@@ -65,7 +65,8 @@ Use the platform command shown above with these arguments.
 | `restore --index N` / `restore -Index N` | Restore a specific snapshot on macOS / Windows. |
 | `watch` | Save periodically in the current terminal until stopped. |
 | `uninstall` | Remove automatic saving and keep the snapshots. |
-| `status`, `pause`, `resume` | On macOS, check or control automatic saving. |
+| `status` | Show whether the watcher is running and when the last snapshot was saved. On Windows, run `.\same-sesh.cmd status`. |
+| `pause`, `resume` | On macOS, pause or resume automatic saving. |
 
 Restore skips identifiable sessions that are already open. The first restore
 after a new login is designed to prefer the previous login’s snapshot. Empty
