@@ -1,4 +1,7 @@
 #!/bin/sh
-# Keep checkout commands stable while the macOS runtime lives in macos/.
 script_dir=$(CDPATH= cd -- "$(/usr/bin/dirname -- "$0")" && pwd) || exit 1
-exec /usr/bin/osascript -l JavaScript "$script_dir/macos/same-sesh" "$@"
+case "$(uname -s)" in
+    Linux) exec /usr/bin/python3 "$script_dir/linux/same-sesh.py" "$@" ;;
+    Darwin) exec /usr/bin/osascript -l JavaScript "$script_dir/macos/same-sesh" "$@" ;;
+    *) printf '%s\n' 'Unsupported platform. On Windows, use same-sesh.cmd.' >&2; exit 1 ;;
+esac

@@ -1,8 +1,6 @@
 # same-sesh
 
-**Reopen your AI terminal sessions after a restart on macOS or Windows.**
-
-*Coming soon for Linux.*
+**Reopen your AI terminal sessions after a restart on macOS, Windows, or Ubuntu on WSL2.**
 
 Your coding assistant keeps the conversation. same-sesh remembers which
 conversations were open, where you were working, and the last prompt when it’s
@@ -41,7 +39,36 @@ Keep the checkout in place. You can run `same-sesh.cmd` from PowerShell 7,
 Windows PowerShell, or Command Prompt. The launcher uses Windows' built-in
 `powershell.exe` for the script and background watcher.
 
-Both platforms use their built-in runtimes and run as your user.
+### Ubuntu on WSL2 (preview)
+
+Run these commands **inside Ubuntu**, from a checkout in the Linux filesystem.
+Use Ubuntu's `python3` and the Linux Copilot CLI, not a Windows binary
+launched via WSL interop. Run Copilot in a Windows Terminal tab running WSL,
+or in tmux. Direct Windows Terminal tabs do not need tmux.
+
+```sh
+./same-sesh install
+./same-sesh status
+./same-sesh restore --dry-run
+./same-sesh restore
+```
+
+`install` enables a systemd user timer. It doesn't keep the WSL distro running;
+after Ubuntu starts again, the timer resumes saving. If you don't have a
+systemd user manager, use `./same-sesh watch` in a separate terminal instead.
+Keep the checkout in place while the timer is installed.
+
+By default, capture includes direct Windows Terminal Copilot sessions and the
+current or default tmux server. Set `SAME_SESH_TMUX_SOCKET` to an absolute
+socket path to capture only that tmux server. `install` remembers a selected
+socket; install from outside tmux to watch both hosts.
+
+Restore opens direct sessions in Windows Terminal (requires WSL interop) and
+tmux sessions in new tmux windows. Unidentified Copilot conversations open
+the picker. If you set `COPILOT_HOME`, direct capture uses only that home;
+use the same setting to restore sessions saved with a custom home.
+VS Code's integrated terminal, Claude Code, and Codex are not supported
+by the WSL preview.
 
 ## Session support
 
@@ -65,22 +92,25 @@ Use the platform command shown above with these arguments.
 | --- | --- |
 | `snapshot` | Save the current sessions immediately. |
 | `history` | List snapshots, numbered from newest at index 0. |
-| `restore --index N` / `restore -Index N` | Restore a specific snapshot on macOS / Windows. |
+| `restore --index N` / `restore -Index N` | Restore a specific snapshot on macOS or Ubuntu / Windows. |
 | `watch` | Save periodically in the current terminal until stopped. |
 | `uninstall` | Remove automatic saving and keep the snapshots. |
 | `status` | Show whether the watcher is running and when the last snapshot was saved. On Windows, run `.\same-sesh.cmd status`. |
 | `pause`, `resume` | On macOS, pause or resume automatic saving. |
 
 Restore skips identifiable sessions that are already open. The first restore
-after a new login is designed to prefer the previous login’s snapshot. Empty
+after a new login or WSL distro restart prefers the previous instance's snapshot. Empty
 captures preserve the last saved sessions. Use `snapshot` before restarting if
 you just opened a session and want to save it immediately.
 
 ## Local data and restore
 
-Snapshots and watcher errors live in `~/.same-sesh`. Snapshots can contain
+Snapshots live in `~/.same-sesh`; on Linux, timer errors go to the user journal
+(`journalctl --user -u same-sesh.service`). Snapshots can contain
 working paths, session IDs, titles, and parts of your prompts. Keep them private.
-The shared JSON format works on both platforms, but saved folders must make
+On Linux, use a user-owned private directory (mode `0700`) for
+`SAME_SESH_STATE_DIR`. The state path and its `history` directory cannot be symlinks.
+The shared JSON format works across platforms, but saved folders must make
 sense on the machine where you restore.
 
 Restore builds commands for supported tools from the tool name and session ID.
@@ -102,8 +132,10 @@ trusted release announcement. The installer verifies the download before running
 
 - macOS: `./macos/same-sesh.tests.js`
 - Windows: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\windows\same-sesh.tests.ps1`
+- Ubuntu: `python3 linux/same-sesh.tests.py`
 
 Live close-and-restore was verified for Claude and Copilot in cmux and for
 Copilot in Terminal.app, iTerm2, and Ghostty. An actual macOS logout and login
-test is pending. Linux/tmux support is planned. See [AGENTS.md](AGENTS.md) for
-adapter guidance.
+test is pending. On Ubuntu 24.04 under WSL2, two Copilot conversations in the
+same directory were restored by ID after a distro restart. Other Linux
+distributions haven't been verified. See [AGENTS.md](AGENTS.md) for adapter guidance.

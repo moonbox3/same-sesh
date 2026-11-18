@@ -41,7 +41,7 @@ scripting APIs and may require the user to approve macOS Automation access.
   and no `ConvertFrom-Json -AsHashtable`.
 - No additional runtime dependencies and no install step. One script file per platform.
 - The snapshot format stays OS-neutral. Do not put Windows-only concepts in it;
-  macOS (cmux) shares it; Linux (tmux) is planned to share it.
+  macOS and Linux share it. Keep terminal handles out of saved tabs.
 - Never re-run an arbitrary recorded command on restore. Only known tools'
   resume commands are run; everything else is shown, not executed.
 - Never record an empty state. That is what the machine looks like right after
@@ -75,6 +75,13 @@ records use a UTC text `procStart`; `startedAt` is the later interactive-session
 time and cannot validate the process lifetime. Copilot may log outside its home
 directory; inspect the owning process's open log, never a child process's log.
 Do not close test terminals automatically: ask the user, then verify restore.
+
+On Ubuntu, run `python3 linux/same-sesh.tests.py`. For live checks use an
+isolated `SAME_SESH_TMUX_SOCKET`, `SAME_SESH_STATE_DIR`, and `COPILOT_HOME`.
+Resumed Copilot sessions can register in their live process log without
+creating a PID lock; verify that the registered ID has an event file under
+that process's Copilot home. Get approval before stopping a WSL distro: it
+stops all processes in that distro, not just the test panes.
 
 Run `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\windows\same-sesh.tests.ps1`
 for dependency-free checks with synthetic sessions. Also test against live tabs:
