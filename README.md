@@ -7,7 +7,7 @@ conversations were open, where you were working, and the last prompt when it’s
 available. A background watcher saves that information about every 30 seconds.
 After a restart, one command reopens the sessions it can identify.
 
-![same-sesh illustration showing Copilot and Claude terminal sessions reopening after a restart on macOS and Windows.](assets/same-sesh-hero.png)
+![same-sesh illustration of terminal sessions reopening after a restart, with macOS, Windows, and Linux badges.](assets/same-sesh-hero.png)
 
 ## Quick start
 
