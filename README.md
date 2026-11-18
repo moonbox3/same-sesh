@@ -1,141 +1,124 @@
 # same-sesh
 
-**Reopen your AI terminal sessions after a restart on macOS, Windows, or Ubuntu on WSL2.**
+**Pick up your AI terminal sessions after a restart.**
 
-Your coding assistant keeps the conversation. same-sesh remembers which
-conversations were open, where you were working, and the last prompt when it’s
-available. A background watcher saves that information about every 30 seconds.
-After a restart, one command reopens the sessions it can identify.
+same-sesh saves which conversations you have open and where you’re working.
+After a restart, run `restore` to reopen them in their original folders. The
+watcher checks for open sessions about every 30 seconds.
 
 ![same-sesh illustration of terminal sessions reopening after a restart, with macOS, Windows, and Linux badges.](assets/same-sesh-hero.png)
 
 ## Quick start
 
-With a GitHub account that has access, clone the repository and open the checkout
-in the terminal you want to use.
+Clone the repo with a GitHub account that has access. Run the commands from
+the checkout. For WSL2, clone and run them **inside Ubuntu** in its Linux filesystem.
 
 ```sh
 git clone git@github.com:moonbox3/same-sesh.git
 cd same-sesh
 ```
 
-| | macOS (preview) | Windows |
-| --- | --- | --- |
-| Terminals | cmux, Terminal.app, iTerm2, Ghostty | Windows Terminal |
-| Start saving automatically | `./same-sesh setup` | `.\same-sesh.cmd install` |
-| See the saved sessions | `same-sesh` | `.\same-sesh.cmd` |
-| Preview restore | `same-sesh restore --dry-run` | `.\same-sesh.cmd restore -DryRun` |
-| Restore | `same-sesh restore` | `.\same-sesh.cmd restore` |
+| Task | macOS (preview) | Windows | Linux on WSL2 (preview) |
+| --- | --- | --- | --- |
+| Terminal | cmux, Terminal.app, iTerm2, Ghostty | Windows Terminal | Windows Terminal tabs running WSL, or tmux inside WSL |
+| Set up automatic saves | `./same-sesh setup` | `.\same-sesh.cmd install` | `./same-sesh install` |
+| Check watcher and last save | `./same-sesh status` | `.\same-sesh.cmd status` | `./same-sesh status` |
+| List saved sessions | `./same-sesh` | `.\same-sesh.cmd` | `./same-sesh` |
+| Preview restore | `./same-sesh restore --dry-run` | `.\same-sesh.cmd restore -DryRun` | `./same-sesh restore --dry-run` |
+| Restore after a restart | `./same-sesh restore` | `.\same-sesh.cmd restore` | `./same-sesh restore` |
 
-On **macOS**, guided setup detects installed terminals, remembers your selection,
-and checks that the watcher can capture sessions. It installs a native copy in
-`~/.local/share/same-sesh` and a command in `~/.local/bin`. If your current shell
-can’t find it yet, follow the PATH instruction printed by setup or use
-`./same-sesh` from the checkout. Terminal.app, iTerm2, and Ghostty may prompt for
-Automation permission on restore. cmux requires socket access for automation.
+- **macOS:** Setup asks which terminal app to watch and installs a copy in
+  `~/.local/share/same-sesh`. Use `same-sesh` from anywhere once
+  `~/.local/bin` is on your PATH. Terminal.app, iTerm2, and Ghostty may ask
+  for Automation permission when you restore. cmux needs socket access.
+- **Windows:** Use `same-sesh.cmd` from PowerShell 7, Windows PowerShell,
+  or Command Prompt. The launcher starts the built-in `powershell.exe` for
+  the script and login watcher. Keep the checkout where you installed it.
+- **Linux on WSL2:** Use Ubuntu’s `python3` and a signed-in **Linux Copilot
+  CLI**. Direct Windows Terminal tabs running WSL work without tmux. Keep the
+  checkout in place for the systemd user timer. Without a systemd user manager,
+  run `./same-sesh watch` in a separate terminal.
 
-On **Windows**, install starts the watcher and registers it to run at login.
-Keep the checkout in place. You can run `same-sesh.cmd` from PowerShell 7,
-Windows PowerShell, or Command Prompt. The launcher uses Windows' built-in
-`powershell.exe` for the script and background watcher.
+## What restores
 
-### Ubuntu on WSL2 (preview)
+| Session | macOS | Windows | Linux on WSL2 |
+| --- | --- | --- | --- |
+| GitHub Copilot CLI | Exact session or picker | Exact native Windows session or picker | Exact Linux session or picker |
+| Claude Code | Exact session or picker | Exact session or most recent in the folder | — |
+| Codex CLI | Session picker | Session picker or ID from the launch command | — |
+| Shell or other command | Reopens the folder and shows what was running | Reopens the folder and shows what was running | tmux panes only. Reopens the folder and shows what was running. |
 
-Run these commands **inside Ubuntu**, from a checkout in the Linux filesystem.
-Use Ubuntu's `python3` and the Linux Copilot CLI, not a Windows binary
-launched via WSL interop. Run Copilot in a Windows Terminal tab running WSL,
-or in tmux. Direct Windows Terminal tabs do not need tmux.
+Exact Codex restore on Windows requires an ID in the running
+`codex resume <id>` command and remains unverified.
 
-```sh
-./same-sesh install
-./same-sesh status
-./same-sesh restore --dry-run
-./same-sesh restore
-```
+Restore skips identifiable conversations that are already open. After a new
+login or WSL distro restart, the first restore prefers the previous snapshot.
+If there’s nothing to capture, the last saved list stays available. Run
+`snapshot` before restarting to save changes that haven’t been picked up yet.
 
-`install` enables a systemd user timer. It doesn't keep the WSL distro running;
-after Ubuntu starts again, the timer resumes saving. If you don't have a
-systemd user manager, use `./same-sesh watch` in a separate terminal instead.
-Keep the checkout in place while the timer is installed.
+The tools redraw their conversation history when they resume. Terminal
+scrollback and pane layouts are outside the snapshot. Restore opens new tabs in
+Windows Terminal, new workspaces in cmux, new windows in the other macOS
+terminals, or new tmux windows for saved tmux panes.
 
-By default, capture includes direct Windows Terminal Copilot sessions and the
-current or default tmux server. Set `SAME_SESH_TMUX_SOCKET` to an absolute
-socket path to capture only that tmux server. `install` remembers a selected
-socket; install from outside tmux to watch both hosts.
+## Other commands
 
-Restore opens direct sessions in Windows Terminal (requires WSL interop) and
-tmux sessions in new tmux windows. Unidentified Copilot conversations open
-the picker. If you set `COPILOT_HOME`, direct capture uses only that home;
-use the same setting to restore sessions saved with a custom home.
-VS Code's integrated terminal, Claude Code, and Codex are not supported
-by the WSL preview.
+Use the same launcher as in the Quick Start.
 
-## Session support
-
-| Session | macOS | Windows |
-| --- | --- | --- |
-| Claude Code | Exact resume when same-sesh identifies the session. Otherwise, opens the picker. | Exact resume when same-sesh identifies the session. Otherwise, continues the latest conversation in that folder. |
-| GitHub Copilot CLI | Exact foreground session when identifiable. Otherwise, opens the picker. | Same. |
-| Codex CLI | Reopens the working folder and launches the Codex session picker. | Uses the session ID when visible in a running `codex resume <id>` command. Otherwise, opens the picker. Exact restore is unverified. |
-| Shell or other command | Reopens the folder and displays what was running. | Same. |
-
-On macOS, same-sesh captures one selected terminal app. Restore opens a new cmux
-workspace or native terminal window for each entry. Windows opens tabs in one
-Windows Terminal window. Tools redraw their own conversation history on resume.
-Pane layout and scrollback are outside the snapshot.
-
-## Everyday commands
-
-Use the platform command shown above with these arguments.
-
-| Command | What it does |
+| Argument | What it does |
 | --- | --- |
 | `snapshot` | Save the current sessions immediately. |
-| `history` | List snapshots, numbered from newest at index 0. |
-| `restore --index N` / `restore -Index N` | Restore a specific snapshot on macOS or Ubuntu / Windows. |
-| `watch` | Save periodically in the current terminal until stopped. |
-| `uninstall` | Remove automatic saving and keep the snapshots. |
-| `status` | Show whether the watcher is running and when the last snapshot was saved. On Windows, run `.\same-sesh.cmd status`. |
-| `pause`, `resume` | On macOS, pause or resume automatic saving. |
+| `history` | List snapshots, starting at index 0 for the newest. |
+| `restore --index N` | Restore an older snapshot. On Windows, use `restore -Index N`. |
+| `watch` | Save periodically in the foreground until stopped. |
+| `uninstall` | Stop automatic saves and remove the watcher. Snapshots are kept. |
+| `pause` / `resume` | Pause or resume automatic saves on macOS. |
 
-Restore skips identifiable sessions that are already open. The first restore
-after a new login or WSL distro restart prefers the previous instance's snapshot. Empty
-captures preserve the last saved sessions. Use `snapshot` before restarting if
-you just opened a session and want to save it immediately.
+## Platform notes
 
-## Local data and restore
+### WSL2 and tmux
 
-Snapshots live in `~/.same-sesh`; on Linux, timer errors go to the user journal
-(`journalctl --user -u same-sesh.service`). Snapshots can contain
-working paths, session IDs, titles, and parts of your prompts. Keep them private.
-On Linux, use a user-owned private directory (mode `0700`) for
-`SAME_SESH_STATE_DIR`. The state path and its `history` directory cannot be symlinks.
-The shared JSON format works across platforms, but saved folders must make
-sense on the machine where you restore.
+Run `install` from **outside tmux** to watch both direct Windows Terminal
+sessions and the default tmux server. Installing from inside tmux remembers that
+server’s socket. To select a specific server, set `SAME_SESH_TMUX_SOCKET` to its
+absolute socket path. Direct Windows Terminal restore needs WSL interop.
+VS Code’s integrated terminal falls outside the preview.
 
-Restore builds commands for supported tools from the tool name and session ID.
-Other recorded commands are shown as text. On macOS, restoring a session with a
-custom tool home requires the corresponding `COPILOT_HOME` or
-`CLAUDE_CONFIG_DIR` to be set in the shell running same-sesh.
+The timer runs while the WSL distro is active and starts again after Ubuntu
+starts. See timer errors with `journalctl --user -u same-sesh.service`.
+If you use a custom `COPILOT_HOME`, set it for capture and restore.
 
-## macOS installer options
+### macOS install options
 
-From the checkout, `./install.sh` runs guided setup. The optional npm launcher
-uses Node only to start setup. You can try it locally with
-`npm exec --yes --package=. -- same-sesh setup`. The npm package is unpublished.
+`./install.sh` starts the same setup as `./same-sesh setup`. To try the
+unpublished npm launcher from a checkout, run
+`npm exec --yes --package=. -- same-sesh setup`. The installed copy and
+watcher run without Node.
 
-For a GitHub release with a standalone `same-sesh` asset, run
-`./install.sh --release VERSION SHA256` with the expected digest from the
-trusted release announcement. The installer verifies the download before running it.
+For a GitHub release with a standalone `same-sesh` asset, use
+`./install.sh --release VERSION SHA256` and the digest from the trusted
+release announcement.
 
-## Development
+## Snapshot privacy
+
+Snapshots in `~/.same-sesh` can contain working paths, session IDs, titles,
+and part of your prompts. Keep them private. Restore only launches supported
+tools. Other saved commands are displayed as text.
+
+On macOS, set the matching `COPILOT_HOME` or `CLAUDE_CONFIG_DIR` in the shell
+running restore if the session used a custom configuration directory. On Linux,
+a custom `SAME_SESH_STATE_DIR` must be a user-owned private directory (mode
+`0700`). The state directory and its `history` subdirectory must be real
+directories.
+
+## Development and validation
 
 - macOS: `./macos/same-sesh.tests.js`
 - Windows: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\windows\same-sesh.tests.ps1`
-- Ubuntu: `python3 linux/same-sesh.tests.py`
+- Linux: `python3 linux/same-sesh.tests.py`
 
-Live close-and-restore was verified for Claude and Copilot in cmux and for
-Copilot in Terminal.app, iTerm2, and Ghostty. An actual macOS logout and login
-test is pending. On Ubuntu 24.04 under WSL2, two Copilot conversations in the
-same directory were restored by ID after a distro restart. Other Linux
-distributions haven't been verified. See [AGENTS.md](AGENTS.md) for adapter guidance.
+Live restore was verified for Claude and Copilot in cmux, and for Copilot in
+Terminal.app, iTerm2, and Ghostty. A full macOS logout and login still needs
+testing. On Ubuntu 24.04 under WSL2, two Copilot conversations in the same
+directory restored by ID after a distro restart. Other Linux distributions
+remain unverified. See [AGENTS.md](AGENTS.md) for adapter guidance.
