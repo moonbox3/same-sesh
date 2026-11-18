@@ -37,8 +37,9 @@ can’t find it yet, follow the PATH instruction printed by setup or use
 Automation permission on restore. cmux requires socket access for automation.
 
 On **Windows**, install starts the watcher and registers it to run at login.
-Keep the checkout in place and run commands through `same-sesh.cmd` using the
-built-in Windows PowerShell 5.1 runtime.
+Keep the checkout in place. You can run `same-sesh.cmd` from PowerShell 7,
+Windows PowerShell, or Command Prompt. The launcher uses Windows' built-in
+`powershell.exe` for the script and background watcher.
 
 Both platforms use their built-in runtimes and run as your user.
 
