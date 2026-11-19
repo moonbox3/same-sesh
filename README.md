@@ -32,7 +32,8 @@ cd same-sesh
 - **macOS:** Setup asks which terminal app to watch and installs a copy in
   `~/.local/share/same-sesh`. Use `same-sesh` from anywhere once
   `~/.local/bin` is on your PATH. Terminal.app, iTerm2, and Ghostty may ask
-  for Automation permission when you restore. cmux needs socket access.
+  for Automation permission when you restore. Terminal.app also uses System
+  Events and Accessibility to create additional tabs. cmux needs socket access.
 - **Windows:** Use `same-sesh.cmd` from PowerShell 7, Windows PowerShell,
   or Command Prompt. The launcher starts the built-in `powershell.exe` for
   the script and login watcher. Keep the checkout where you installed it.
@@ -55,13 +56,14 @@ Exact Codex restore on Windows requires an ID in the running
 
 Restore skips identifiable conversations that are already open. After a new
 login or WSL distro restart, the first restore prefers the previous snapshot.
+On macOS, restore reports unavailable folders and skips those entries.
 If there’s nothing to capture, the last saved list stays available. Run
 `snapshot` before restarting to save changes that haven’t been picked up yet.
 
 The tools redraw their conversation history when they resume. Terminal
 scrollback and pane layouts are outside the snapshot. Restore opens new tabs in
-Windows Terminal, new workspaces in cmux, new windows in the other macOS
-terminals, or new tmux windows for saved tmux panes.
+Windows Terminal, new workspaces in cmux, tabs in one new window in Terminal.app,
+iTerm2, and Ghostty, or new tmux windows for saved tmux panes.
 
 ## Save a named snapshot
 

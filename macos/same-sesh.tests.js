@@ -48,7 +48,7 @@ function run(args) {
         assert(meta.cwd === '/tmp/a b' && meta.name === "it's fine" && meta.summary === 'first second','workspace scalar decoding');
         var events = state+'/events.jsonl';
         write(events,JSON.stringify({type:'user.message',data:{content:tricky}})+'\n'+JSON.stringify({type:'tool.output',text:new Array(180001).join('x')})+'\n{"type":"user.message",');
-        throws(function(){restoreArgs({cwd:events});},'files cannot be restored as folders');
+        assert(restoreArgs({cwd:events})===null,'files cannot be restored as folders');
         var found=lastLine(events,function(l){try{return JSON.parse(l).type==='user.message';}catch(_){return false;}});
         assert(lastLine(events,function(l){return /missing-marker/.test(l);},function(l){return /missing-marker/.test(l);})===null,'ASCII prefilter safely skips unrelated large log lines');
         assert(JSON.parse(found).data.content.normalize('NFC') === tricky,'prompt survives huge output, UTF-8 and incomplete final event');
@@ -100,6 +100,33 @@ function run(args) {
         var command=restoreArgs(restoreTab);
         assert(exec('/bin/zsh',['-c',command[command.indexOf('--command')+1]]).trim().normalize('NFC') === ('same-sesh: was running: '+tricky).trim(),'restore only prints arbitrary recorded commands');
         assert(exec('/bin/zsh',['-c',nativeCommand(restoreTab,command)+'; pwd']).trim().split('\n').pop() === folder,'native shell keeps restored working folder after command exits');
+        var oldTab={tty:function(){return '/dev/ttys001';}};
+        var newTab={tty:function(){return '/dev/ttys002';},selected:function(){return true;},busy:function(){return false;}};
+        var menuClicks=[], groupSize=1;
+        var targetWindow={id:function(){return 42;},tabs:function(){return [oldTab];}};
+        var nextWindow={id:function(){return 43;},tabs:function(){return [newTab];}};
+        var appleWindows=[targetWindow];
+        var fakeApp={activate:function(){},windows:function(){return appleWindows;}};
+        fakeApp.windows.byId=function(id){return appleWindows.filter(function(w){return w.id()===id;})[0];};
+        var tabButton={role:function(){return 'AXRadioButton';}};
+        var group={role:function(){return 'AXTabGroup';},uiElements:function(){
+            return Array(groupSize).fill(tabButton);
+        }};
+        var focused={uiElements:function(){return groupSize>1?[group]:[];}};
+        var focusTransitions=0;
+        var process={frontmost:function(){return true;},windows:function(){return [focused];},
+            attributes:{byName:function(){return {value:function(){
+                if (groupSize>1 && focusTransitions++===0) throw Error("Can't get object while opening tab");
+                return focused;
+            }};}}};
+        var fakeEvents={process:process,newTab:{},
+            app:{click:function(item){menuClicks.push(item);appleWindows.unshift(nextWindow);groupSize++;}}};
+        var createdTab=newAppleTerminalTab(fakeApp,targetWindow,fakeEvents);
+        assert(createdTab.session===newTab && createdTab.window===nextWindow,
+            'Apple Terminal finds the new tab even when scripting assigns it a new window ID');
+        assert(focusTransitions===2,'Apple Terminal waits for the focused window to become readable');
+        assert(menuClicks.length===1 && menuClicks[0]===fakeEvents.newTab,
+            'Apple Terminal uses the targeted New Tab menu action');
         throws(function(){restoreArgs({cwd:'C:\\Windows'});},'foreign paths rejected');
         var calls=0;locked(function(){calls++;locked(function(){calls++;});});
         assert(calls===1,'concurrent snapshot lock excludes second writer');
@@ -138,7 +165,7 @@ function run(args) {
         assert(opened.length===1,'receipt prevents duplicates before tool startup');
         fakeTree.windows[0].workspaces=[];restore(restoreSnap,false);
         assert(opened.length===2,'closed receipt workspace can be restored again');
-        throws(function(){restore({tabs:[{tool:'claude',sessionId:idB,cwd:state},{cwd:'/missing-same-sesh-test-path'}]},false);},'all tabs validated before mutation');
+        throws(function(){restore({tabs:[{tool:'claude',sessionId:idB,cwd:state},{cwd:'relative/path'}]},false);},'all tabs validated before mutation');
         assert(opened.length===2,'invalid later tab leaves all terminals untouched');
         fakeLive=[];restore({tabs:[tabA,tabA]},false);
         assert(opened.length===3,'same exact conversation is opened once within a restore');
@@ -158,6 +185,29 @@ function run(args) {
         cli(['restore','--name','Before deploy']);
         assert(read(state+'/restored-epoch.txt')==='previous marker','named restore preserves automatic restore selection');
         throws(function(){cli(['restore','--name','Before deploy','--index','0']);},'name and index are mutually exclusive');
+        var staleTab={tool:'copilot',sessionId:idB,cwd:state+'/removed folder'};
+        save([staleTab,restoreTab],'test-epoch','Mixed folders');
+        var warnings=[], originalWarn=warn, openedBefore=opened.length;
+        warn=function(message){warnings.push(message);};
+        try {
+            cli(['restore','--name','Mixed folders','--dry-run']);
+            assert(opened.length===openedBefore && warnings[0].indexOf(staleTab.cwd)>=0,
+                'named dry run reports missing folder and opens nothing');
+            cli(['restore','--name','Mixed folders']);
+            assert(opened.length===openedBefore+1 && opened[openedBefore].indexOf(folder)>=0,
+                'missing folder does not prevent valid named entries from restoring');
+            restore({tabs:[staleTab]},false);
+            assert(opened.length===openedBefore+1 && read(state+'/restored-epoch.txt')==='previous marker',
+                'restore with only missing folders leaves the login marker alone');
+        } finally { warn=originalWarn; }
+        fakeLive=[tabA];
+        var summary=[], previousLog=console.log;
+        console.log=function(line){summary.push(line);};
+        try {
+            restore({tabs:[tabA,staleTab,tabB,tabB]},true);
+            assert(summary.indexOf('Snapshot: 4 saved, 1 already open or starting, 1 with unavailable folders, 1 duplicate entries.')>=0 &&
+                summary.indexOf('Would open 1 terminal.')>=0,'restore accounts for every saved entry');
+        } finally { console.log=previousLog; }
         exec=realExec;capture=realCapture;epoch=realEpoch;
         var processes=parseProcesses('100 1 100 0 ?? /Applications/Test.app/Contents/MacOS/Test\n101 100 101 102 ttys001 login\n102 101 102 102 ttys001 -zsh\n103 102 102 102 ttys001 /usr/local/bin/copilot\n201 200 201 201 ttys001 -zsh');
         assert(processes[2].name==='zsh','login shell names normalize');

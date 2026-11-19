@@ -301,20 +301,111 @@ function inventory() {
 function nativeCommand(t,args) {
     return 'cd -- ' + quote(t.cwd) + ' && ' + args[args.indexOf('--command')+1];
 }
-function openNative(t, args) {
-    var spec = nativeTerminals[terminal], app = Application(spec.bundle);
+function appleTerminalTabEvents(app) {
+    try {
+        var events = Application('com.apple.systemevents');
+        if (!app.running()) app.activate();
+        var process = events.processes.byName('Terminal');
+        // Find the New Tab action by its Command-T shortcut so localized
+        // menu labels and custom profile names do not affect the lookup.
+        var groups = process.menuBars[0].menuBarItems();
+        for (var i=0;i<groups.length;i++) {
+            var menu = groups[i].menus()[0];
+            if (!menu) continue;
+            var entries = menu.menuItems();
+            for (var j=0;j<entries.length;j++) {
+                var submenu = entries[j].menus()[0];
+                if (!submenu) continue;
+                var match = submenu.menuItems().filter(function(item) {
+                    try {
+                        return item.attributes.byName('AXMenuItemCmdChar').value() === 'T' &&
+                            item.attributes.byName('AXMenuItemCmdModifiers').value() === 0;
+                    } catch (_) { return false; }
+                })[0];
+                if (match) return {app:events,process:process,newTab:match};
+            }
+        }
+        throw Error('No New Tab menu action with the Command-T shortcut was found.');
+    } catch (e) {
+        throw Error('Could not create a Terminal.app tab. Allow Automation for System Events and Accessibility for the app running same-sesh if prompted. ' + e);
+    }
+}
+function appleTerminalTabCount(process) {
+    var window = process.attributes.byName('AXFocusedWindow').value();
+    var group = window.uiElements().filter(function(item) { return item.role() === 'AXTabGroup'; })[0];
+    return group ? group.uiElements().filter(function(item) { return item.role() === 'AXRadioButton'; }).length : 1;
+}
+function newAppleTerminalTab(app, window, events) {
+    var targetId = window.id();
+    app.activate();
+    window.index = 1;
+    for (var attempt=0;attempt<20;attempt++) {
+        var front = app.windows()[0];
+        if (events.process.frontmost() && front && front.id() === targetId) break;
+        $.NSThread.sleepForTimeInterval(0.1);
+    }
+    if (attempt === 20) throw Error('Could not focus the Terminal.app restore window.');
+    var existing = [];
+    app.windows().forEach(function(w) {
+        w.tabs().forEach(function(tab) { existing.push(tab.tty()); });
+    });
+    var tabCount = appleTerminalTabCount(events.process);
+    var windowCount = events.process.windows().length;
+    events.app.click(events.newTab);
+    // Recent Terminal versions expose each tab as a separate AppleScript
+    // window. Accessibility reports the physical windows and visible tabs.
+    for (var i=0;i<30;i++) {
+        try {
+            if (events.process.frontmost() && events.process.windows().length === windowCount &&
+                appleTerminalTabCount(events.process) === tabCount + 1) {
+                front = app.windows()[0];
+                var added = front && front.tabs().filter(function(tab) {
+                    var tty = tab.tty();
+                    return tty && existing.indexOf(tty) < 0 && tab.selected() && !tab.busy();
+                })[0];
+                if (added) return {session:added,window: app.windows.byId(front.id())};
+            }
+        } catch (_) { /* The focused window can be unavailable while the tab opens. */ }
+        $.NSThread.sleepForTimeInterval(0.1);
+    }
+    throw Error('Could not confirm a new idle tab in the Terminal.app restore window.');
+}
+function openNative(t, args, destination) {
+    var app = destination.app;
     var command = nativeCommand(t,args), session;
     if (terminal === 'terminal') {
-        session = app.doScript(command); session.customTitle = t.title || 'same-sesh';
+        if (destination.window) {
+            var next = newAppleTerminalTab(app,destination.window,destination.events);
+            session = next.session;
+            destination.window = next.window;
+            app.doScript(command,{in:session});
+        } else {
+            session = app.doScript(command);
+            var firstTTY = session.tty();
+            var firstWindow = app.windows().filter(function(window) {
+                return window.tabs().some(function(tab) { return tab.tty() === firstTTY; });
+            })[0];
+            if (!firstTTY || !firstWindow) throw Error('Could not identify the new Terminal.app restore window.');
+            destination.window = app.windows.byId(firstWindow.id());
+        }
+        session.customTitle = t.title || 'same-sesh';
     } else if (terminal === 'ghostty') {
         var config = app.newSurfaceConfiguration();
         config.initialWorkingDirectory = t.cwd; config.initialInput = command + '\n';
-        var window = app.newWindow({withConfiguration:config}); session = window.terminals()[0];
+        if (destination.window) {
+            session = app.newTab({in:destination.window,withConfiguration:config}).focusedTerminal();
+        } else {
+            destination.window = app.newWindow({withConfiguration:config});
+            session = destination.window.terminals()[0];
+        }
         session.nameOverride = t.title || 'same-sesh';
     } else {
-        var win = app.createWindowWithDefaultProfile({command:'/bin/zsh -l'});
-        if (!win) throw Error('iTerm2 did not create a terminal session');
-        session = win.currentSession();
+        var options = {command:'/bin/zsh -l'};
+        var target = destination.window
+            ? app.createTabWithDefaultProfile(destination.window,options)
+            : (destination.window = app.createWindowWithDefaultProfile(options));
+        if (!target) throw Error('iTerm2 did not create a terminal session');
+        session = target.currentSession();
         app.write(session,{text:command});
     }
     var tty = session.tty().replace(/^\/dev\//,'');
@@ -437,7 +528,8 @@ function show(s) {
     });
 }
 function restoreArgs(t) {
-    if (typeof t.cwd !== 'string' || t.cwd[0] !== '/' || !isDirectory(t.cwd)) throw Error('Restore folder unavailable on this Mac: ' + t.cwd);
+    if (typeof t.cwd !== 'string' || t.cwd[0] !== '/') throw Error('Invalid restore folder: ' + JSON.stringify(t.cwd));
+    if (!isDirectory(t.cwd)) return null;
     var cmd = resume(t);
     if (!cmd) cmd = "printf '%s\\n' " + quote('same-sesh: was running: ' + (t.wasRunning || '(idle shell)'));
     // Explicit shell parsing protects quotes, newlines, dollar signs and semicolons.
@@ -448,6 +540,18 @@ function workspaceIds(tree) {
     var out = {};
     (tree.windows || []).forEach(function(w) { (w.workspaces || []).forEach(function(ws) { out[ws.ref] = ws.id; }); });
     return out;
+}
+function openCmuxWorkspace(args) {
+    var result = exec(cmux,args);
+    var ref = /OK (workspace:\d+)/.exec(result);
+    if (!ref) throw Error('Terminal opened but cmux returned an unknown handle; inspect before retrying');
+    // Workspace creation can be acknowledged before it appears in tree.
+    for (var attempt=0;attempt<30;attempt++) {
+        var id = workspaceIds(JSON.parse(exec(cmux,['--json','tree','--all'])))[ref[1]];
+        if (id) return id;
+        $.NSThread.sleepForTimeInterval(0.1);
+    }
+    throw Error('New terminal disappeared before it could be recorded');
 }
 function restore(s, dry, named) {
     if (!s) { show(s); return; }
@@ -479,38 +583,49 @@ function restore(s, dry, named) {
         var represented = observed.some(function(o) { return owners[o.surfaceRef] === r.workspaceId && key(o.tab) === r.key; });
         if (!represented) live[r.key] = (live[r.key] || 0) + 1;
     });
-    var planned = {};
+    var planned = {}, unavailable = 0, alreadyOpen = 0, duplicates = 0;
     s.tabs.forEach(function(t) {
         var args = restoreArgs(t), k = key(t);
-        if (t.sessionId && liveSessions[JSON.stringify([t.tool,t.sessionId,t.toolHome || ''])]) return;
-        if (t.sessionId && planned[k]) return;
+        if (t.sessionId && liveSessions[JSON.stringify([t.tool,t.sessionId,t.toolHome || ''])]) {
+            alreadyOpen++;
+            return;
+        }
+        if (!args) {
+            unavailable++;
+            warn('Skipping terminal with unavailable folder: ' + JSON.stringify(t.cwd));
+            return;
+        }
+        if (t.sessionId && planned[k]) { duplicates++; return; }
         if (t.sessionId) planned[k] = true;
-        if (live[k]) { live[k]--; return; }
+        if (live[k]) { live[k]--; alreadyOpen++; return; }
         pending.push({tab:t,args:args});
     });
-    pending.forEach(function(p) {
-        if (dry) console.log(terminal === 'cmux' ? [cmux].concat(p.args).map(quote).join(' ') : nativeTerminals[terminal].name + ' new terminal: ' + p.args[p.args.indexOf('--command')+1]);
+    var counts = [s.tabs.length + ' saved'];
+    if (alreadyOpen) counts.push(alreadyOpen + ' already open or starting');
+    if (unavailable) counts.push(unavailable + ' with unavailable folders');
+    if (duplicates) counts.push(duplicates + ' duplicate entries');
+    console.log('Snapshot: ' + counts.join(', ') + '.');
+    var destination = !dry && pending.length && terminal !== 'cmux'
+        ? {app:Application(nativeTerminals[terminal].bundle),window:null} : null;
+    if (destination && terminal === 'terminal' && pending.length > 1) {
+        destination.events = appleTerminalTabEvents(destination.app);
+    }
+    var opened = 0;
+    pending.forEach(function(p,i) {
+        if (dry) console.log(terminal === 'cmux' ? [cmux].concat(p.args).map(quote).join(' ') : nativeTerminals[terminal].name + (i ? ' new tab: ' : ' new window: ') + p.args[p.args.indexOf('--command')+1]);
         else {
-            var created;
-            if (terminal !== 'cmux') created = openNative(p.tab,p.args);
-            else {
-            var result = exec(cmux,p.args);
-            var ref = /OK (workspace:\d+)/.exec(result);
-            if (!ref) throw Error('Terminal opened but cmux returned an unknown handle; inspect before retrying');
-            // Workspace creation can be acknowledged before it appears in tree.
-            for (var attempt=0;attempt<30;attempt++) {
-                created = workspaceIds(JSON.parse(exec(cmux,['--json','tree','--all'])))[ref[1]];
-                if (created) break;
-                $.NSThread.sleepForTimeInterval(0.1);
+            try {
+                var created = destination ? openNative(p.tab,p.args,destination) : openCmuxWorkspace(p.args);
+                opened++;
+                receipts.push({epoch:currentEpoch,workspaceId:created,key:key(p.tab),createdAt:Date.now()});
+                write(receiptFile,JSON.stringify(receipts));
+            } catch (e) {
+                throw Error('Restore stopped after confirming ' + opened + ' of ' + pending.length + ' planned terminals. ' + e.message);
             }
-            }
-            if (!created) throw Error('New terminal disappeared before it could be recorded');
-            receipts.push({epoch:currentEpoch,workspaceId:created,key:key(p.tab),createdAt:Date.now()});
-            write(receiptFile,JSON.stringify(receipts));
         }
     });
-    if (!dry && !named) write(state + '/restored-epoch.txt',currentEpoch);
-    console.log((dry ? 'Would open ' : 'Opened ') + pending.length + ' terminals.');
+    if (!dry && !named && unavailable < s.tabs.length) write(state + '/restored-epoch.txt',currentEpoch);
+    console.log((dry ? 'Would open ' : 'Opened ') + pending.length + (pending.length === 1 ? ' terminal.' : ' terminals.'));
 }
 
 function xml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
