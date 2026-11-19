@@ -734,18 +734,32 @@ function pathSetup(paths, yes) {
     var onPath = (env.PATH || '').split(':').indexOf(paths.bin) >= 0;
     if (onPath) return;
     var shell = (env.SHELL || '/bin/zsh').split('/').pop();
-    var rc = shell === 'zsh' ? home + '/.zshrc' : shell === 'bash' ? home + '/.bash_profile' : null;
-    var line = 'export PATH=' + quote(paths.bin) + ':"$PATH"';
-    if (!rc) { console.log('Add ' + paths.bin + ' to your shell PATH. Installed command: ' + paths.shim); return; }
+    var rc = shell === 'zsh' ? (env.ZDOTDIR || home) + '/.zshrc' :
+        shell === 'bash' ? home + '/.bash_profile' :
+        shell === 'fish' ? (env.XDG_CONFIG_HOME || home + '/.config') + '/fish/config.fish' :
+        shell === 'sh' ? home + '/.profile' : null;
+    var manual = 'To run same-sesh from any folder, add ' + paths.bin + ' to your PATH manually.';
+    if (!rc || /[:\r\n]/.test(paths.bin)) { console.log(manual); return; }
+    var line;
+    if (shell === 'fish') {
+        var fishPath = "'" + paths.bin.replace(/\\/g,'\\\\').replace(/'/g,"\\'") + "'";
+        line = 'contains -- ' + fishPath + ' $PATH; or set -gx PATH $PATH ' + fishPath;
+    } else {
+        line = 'export PATH=' + quote(paths.bin) + ':"$PATH"';
+    }
     rc = ObjC.unwrap($(rc).stringByResolvingSymlinksInPath);
     var content = read(rc) || '';
-    if (content.indexOf(line) < 0 && (yes || ask('Add same-sesh to your terminal PATH?',true))) {
+    if (content.split('\n').indexOf(line) < 0) {
+        if (!yes) {
+            console.log('If you decline, using same-sesh from any folder requires manual PATH setup.');
+            if (!ask('Add same-sesh to your PATH?',true)) { console.log(manual); return; }
+        }
         var attributes = exists(rc) ? fm.attributesOfItemAtPathError(rc,null) : null;
         if (exists(rc)) write(rc + '.same-sesh-backup-' + Date.now(),content);
         write(rc,content + '\n# same-sesh command\n' + line + '\n');
         if (attributes) fm.setAttributesOfItemAtPathError($({NSFilePosixPermissions:Number(attributes.objectForKey('NSFilePosixPermissions'))}),rc,null);
     }
-    console.log('For this terminal, run: ' + line);
+    console.log('PATH is configured. Open a new shell to use same-sesh.');
 }
 function setup(yes, startWatcher) {
     console.log('same-sesh — same sessions, different boot.');

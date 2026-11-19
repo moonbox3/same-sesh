@@ -21,13 +21,19 @@ cd same-sesh
 | Task | macOS (preview) | Windows | Linux on WSL2 (preview) |
 | --- | --- | --- | --- |
 | Terminal | cmux, Terminal.app, iTerm2, Ghostty | Windows Terminal | Windows Terminal tabs running WSL, or tmux inside WSL |
-| Set up automatic saves | `./same-sesh setup` | `.\same-sesh.cmd install` | `./same-sesh install` |
+| Set up automatic saves | `./same-sesh install` | `.\same-sesh.cmd install` | `./same-sesh install` |
 | Check watcher and last save | `./same-sesh status` | `.\same-sesh.cmd status` | `./same-sesh status` |
 | List saved sessions and named snapshots | `./same-sesh list` | `.\same-sesh.cmd list` | `./same-sesh list` |
 | Preview restore | `./same-sesh restore --dry-run` | `.\same-sesh.cmd restore -DryRun` | `./same-sesh restore --dry-run` |
 | Restore after a restart | `./same-sesh restore` | `.\same-sesh.cmd restore` | `./same-sesh restore` |
 | [Save a named snapshot](#save-a-named-snapshot) | `./same-sesh snapshot --name release` | `.\same-sesh.cmd snapshot -Name release` | `./same-sesh snapshot --name release` |
 | Restore by name | `./same-sesh restore --name release` | `.\same-sesh.cmd restore -Name release` | `./same-sesh restore --name release` |
+
+When install asks **“Add same-sesh to your PATH?”**, choose **Yes** to run
+`same-sesh` from any folder. Open a new shell afterward (on Windows, close and
+reopen Windows Terminal). If you decline, you can still use the commands from
+the checkout or set up PATH manually later. For unattended installs, use
+`install --yes` on macOS and Linux or `install -Yes` on Windows.
 
 - **macOS:** Setup asks which terminal app to watch and installs a copy in
   `~/.local/share/same-sesh`. Use `same-sesh` from anywhere once
@@ -107,8 +113,9 @@ If you use a custom `COPILOT_HOME`, set it for capture and restore.
 
 ### macOS install options
 
-`./install.sh` starts the same setup as `./same-sesh setup`. To try the
-unpublished npm launcher from a checkout, run
+`./same-sesh install` runs guided setup and starts the watcher. Use
+`./same-sesh setup` or `./install.sh` if you want the wizard to ask whether
+to enable automatic saving. To try the unpublished npm launcher from a checkout, run
 `npm exec --yes --package=. -- same-sesh setup`. The installed copy and
 watcher run without Node.
 

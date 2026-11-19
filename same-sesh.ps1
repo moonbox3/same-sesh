@@ -7,7 +7,8 @@ param(
     [int]$Index = -1,
     [switch]$DryRun,
     [int]$IntervalSeconds = 30,
-    [string]$Name
+    [string]$Name,
+    [switch]$Yes
 )
 
 & "$PSScriptRoot\windows\same-sesh.ps1" @PSBoundParameters

@@ -22,6 +22,10 @@ function New-TestSession([string]$Id, [string]$Cwd, [int]$ProcessId) {
 }
 
 try {
+    $initialPath = '%SAME_SESH_OTHER_TOOL%;C:\Tools'
+    Assert-Equal (Add-PathEntry $initialPath 'C:\My Repo') ($initialPath + ';C:\My Repo') 'PATH setup preserves existing entries and variable references'
+    Assert-Equal (Add-PathEntry $initialPath 'c:\tools\') $initialPath 'PATH setup handles existing entries case-insensitively'
+    Assert-Equal (Add-PathEntry '' 'C:\My Repo') 'C:\My Repo' 'PATH setup handles an empty user path'
     $env:COPILOT_HOME = Join-Path $testRoot 'copilot'
     $first = '11111111-1111-4111-8111-111111111111'
     $second = '22222222-2222-4222-8222-222222222222'

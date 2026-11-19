@@ -664,6 +664,58 @@ def systemd_arg(value):
         "%", "%%").replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t") + '"'
 
 
+def install_on_path(yes):
+    checkout = str(Path(__file__).resolve().parents[1])
+    if checkout in os.get_exec_path():
+        return
+    shell = Path(os.environ.get("SHELL") or "/bin/bash").name
+    profiles = {
+        "bash": [HOME / ".bashrc", next(
+            (HOME / name for name in (".bash_profile", ".bash_login", ".profile") if (HOME / name).is_file()),
+            HOME / ".profile")],
+        "zsh": [Path(os.environ.get("ZDOTDIR") or HOME) / ".zshrc"],
+        "sh": [HOME / ".profile"],
+        "dash": [HOME / ".profile"],
+        "fish": [Path(os.environ.get("XDG_CONFIG_HOME") or HOME / ".config") / "fish" / "config.fish"],
+    }.get(shell)
+    manual = f"To run same-sesh from any folder, add {checkout} to your PATH manually."
+    if not profiles or any(character in checkout for character in ":\r\n"):
+        print(manual)
+        return
+    if shell == "fish":
+        quoted = "'" + checkout.replace("\\", "\\\\").replace("'", "\\'") + "'"
+        line = f"contains -- {quoted} $PATH; or set -gx PATH $PATH {quoted}"
+    else:
+        quoted = shlex.quote(checkout)
+        line = f'case ":$PATH:" in *:{quoted}:*) ;; *) export PATH="${{PATH:+$PATH:}}"{quoted} ;; esac'
+    content = ("\n# same-sesh command\n" + line + "\n").encode()
+    updates = []
+    for profile in profiles:
+        try:
+            if line.encode() in profile.read_bytes().splitlines():
+                continue
+        except FileNotFoundError:
+            pass
+        updates.append(profile)
+    if not updates:
+        print("PATH is already configured. Open a new shell to use same-sesh.")
+        return
+    if not yes:
+        print("If you decline, using same-sesh from any folder requires manual PATH setup.")
+        try:
+            answer = input("Add same-sesh to your PATH? [Y/n] ") if sys.stdin.isatty() else "no"
+        except EOFError:
+            answer = "no"
+        if answer.strip().lower() not in ("", "y", "yes"):
+            print(manual)
+            return
+    for profile in updates:
+        profile.parent.mkdir(parents=True, exist_ok=True)
+        with profile.open("ab") as stream:
+            stream.write(content)
+    print("Added same-sesh to your PATH. Open a new shell to use it.")
+
+
 def manage_watcher(install):
     paths = [UNIT_DIR / unit for unit in (SERVICE, TIMER)]
     for path in paths:
@@ -730,8 +782,10 @@ def status():
 def main():
     parser = argparse.ArgumentParser(prog="same-sesh")
     commands = parser.add_subparsers(dest="command")
-    for name in ("list", "history", "watch", "status", "install", "uninstall"):
+    for name in ("list", "history", "watch", "status", "uninstall"):
         commands.add_parser(name)
+    commands.add_parser("install").add_argument("--yes", action="store_true",
+                                                   help="add same-sesh to PATH without prompting")
     commands.add_parser("snapshot").add_argument("--name")
     restore_parser = commands.add_parser("restore")
     restore_parser.add_argument("--dry-run", action="store_true")
@@ -751,6 +805,8 @@ def main():
             status()
         elif args.command in ("install", "uninstall"):
             manage_watcher(args.command == "install")
+            if args.command == "install":
+                install_on_path(args.yes)
         elif args.command == "history":
             for i, snap in enumerate(snapshots()):
                 print(f'{i}: {snap["takenAt"]} ({len(snap["tabs"])} panes)')

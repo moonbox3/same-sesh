@@ -8,7 +8,7 @@ and reopen them after a restart.
   same-sesh history      list older snapshots
   same-sesh status       show watcher status and last save
   same-sesh watch        snapshot every 30s until stopped
-  same-sesh install      start the watcher at every login (uninstall removes it)
+  same-sesh install      start the watcher and offer PATH setup (-Yes to accept)
 
 Pilot scope: Windows Terminal + Windows PowerShell 5.1. The snapshot file is
 plain JSON with nothing Windows-specific in its shape, so other terminals
@@ -22,7 +22,8 @@ param(
     [int]$Index = -1,
     [switch]$DryRun,
     [int]$IntervalSeconds = 30,
-    [string]$Name
+    [string]$Name,
+    [switch]$Yes
 )
 
 $ErrorActionPreference = 'Stop'
@@ -54,6 +55,13 @@ public static class TabResumeNative {
     [DllImport("kernel32.dll")] static extern IntPtr OpenProcess(int access, bool inherit, int pid);
     [DllImport("kernel32.dll")] static extern bool ReadProcessMemory(IntPtr h, IntPtr addr, byte[] buf, IntPtr size, out IntPtr read);
     [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr h);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    static extern IntPtr SendMessageTimeout(IntPtr window, uint message, IntPtr wParam,
+        string lParam, uint flags, uint timeout, out UIntPtr result);
+    public static void NotifyEnvironmentChanged() {
+        UIntPtr result;
+        SendMessageTimeout(new IntPtr(0xffff), 0x001a, IntPtr.Zero, "Environment", 2, 1000, out result);
+    }
     public static string GetCwd(int pid) {
         if (IntPtr.Size != 8) return null;
         IntPtr h = OpenProcess(0x0400 | 0x0010, false, pid);
@@ -565,6 +573,43 @@ function Show-WatcherStatus {
     }
 }
 
+function Add-PathEntry([string]$CurrentPath, [string]$Directory) {
+    $trimCharacters = [char[]]'\/'
+    $target = $Directory.TrimEnd($trimCharacters)
+    foreach ($entry in $CurrentPath -split ';') {
+        $expanded = [Environment]::ExpandEnvironmentVariables($entry.Trim().Trim('"'))
+        if ($expanded.TrimEnd($trimCharacters) -eq $target) { return $CurrentPath }
+    }
+    if (-not $CurrentPath) { return $Directory }
+    $CurrentPath.TrimEnd(';') + ';' + $Directory
+}
+
+function Install-OnPath([string]$Directory, [switch]$Accept) {
+    if ((Add-PathEntry $env:Path $Directory) -eq $env:Path) { return }
+    $manual = "To run same-sesh from any folder, add $Directory to your user PATH manually."
+    if ($Directory -match '[;%\r\n]') {
+        Write-Host $manual
+        return
+    }
+    if (-not $Accept) {
+        Write-Host 'If you decline, using same-sesh from any folder requires manual PATH setup.'
+        $answer = if ([Console]::IsInputRedirected) { 'no' } else { Read-Host 'Add same-sesh to your PATH? [Y/n]' }
+        if ($answer -notmatch '\A\s*(?:y|yes)?\s*\z') { Write-Host $manual; return }
+    }
+    $environment = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Environment')
+    try {
+        $current = $environment.GetValue('Path', $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+        if ($null -ne $current -and $current -isnot [string]) { throw 'User PATH is not a string. ' + $manual }
+        $updated = Add-PathEntry $current $Directory
+        if ($updated -cne $current) {
+            $kind = if ($null -eq $current) { [Microsoft.Win32.RegistryValueKind]::String } else { $environment.GetValueKind('Path') }
+            $environment.SetValue('Path', $updated, $kind)
+            [TabResumeNative]::NotifyEnvironmentChanged()
+        }
+    } finally { $environment.Dispose() }
+    Write-Host 'PATH is configured. Close and reopen Windows Terminal to use same-sesh.'
+}
+
 function Show-NamedSnapshots {
     $directory = Join-Path $StateDir 'named'
     if (-not (Test-Path -LiteralPath $directory)) { return $false }
@@ -653,6 +698,7 @@ switch ($Command) {
         Set-ItemProperty -Path $RunKey -Name 'same-sesh' -Value $cmd
         Start-Process conhost.exe -ArgumentList "--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" watch"
         Write-Host 'Watcher started, and it will start again at every login.' -ForegroundColor Green
+        Install-OnPath (Split-Path -Parent $PSScriptRoot) -Accept:$Yes
     }
     'uninstall' {
         Remove-ItemProperty -Path $RunKey -Name 'same-sesh' -ErrorAction SilentlyContinue

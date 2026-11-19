@@ -1,3 +1,4 @@
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -7,11 +8,41 @@ import subprocess
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
 FIRST = "d72f6333-cc42-4cf4-8f20-896a1e46c500"
 SECOND = "c3fc9da0-6c66-4a56-90cf-af0130413bf1"
+
+
+class PathInstallTests(unittest.TestCase):
+    def test_bash_path_setup_respects_consent_and_can_be_repeated(self):
+        spec = importlib.util.spec_from_file_location("same_sesh", ROOT / "linux" / "same-sesh.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            checkout = base / "checkout with ' quote"
+            profile = base / ".bash_profile"
+            profile.write_text("# existing profile\n")
+            with patch.object(module, "HOME", base), \
+                    patch.object(module, "__file__", str(checkout / "linux" / "same-sesh.py")), \
+                    patch.dict(os.environ, {"PATH": "/usr/bin:/bin", "SHELL": "/bin/bash"}), \
+                    patch("sys.stdin.isatty", return_value=True), patch("builtins.input", return_value="n"):
+                module.install_on_path(yes=False)
+                self.assertEqual(profile.read_text(), "# existing profile\n")
+                self.assertFalse((base / ".bashrc").exists())
+                module.install_on_path(yes=True)
+                configured = profile.read_text()
+                module.install_on_path(yes=True)
+                self.assertEqual(profile.read_text(), configured)
+                result = subprocess.run(
+                    ["/bin/bash", "-c", 'source "$1"; source "$2"; printf "%s" "$PATH"',
+                     "fixture", str(profile), str(base / ".bashrc")],
+                    check=True, capture_output=True, text=True,
+                )
+                self.assertEqual(result.stdout.split(":"), ["/usr/bin", "/bin", str(checkout.resolve())])
 
 
 class TmuxTests(unittest.TestCase):

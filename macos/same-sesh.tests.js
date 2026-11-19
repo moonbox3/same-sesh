@@ -236,6 +236,12 @@ function run(args) {
         home=state+'/fake-home';mkdir(home);env.SHELL='/bin/zsh';env.PATH='/usr/bin:/bin';
         var profileTarget=home+'/managed-profile';write(profileTarget,'# existing config\n');
         fm.createSymbolicLinkAtPathWithDestinationPathError(home+'/.zshrc',profileTarget,null);
+        var originalAsk=ask;
+        ask=function(){return false;};
+        try {
+            pathSetup({bin:state+'/new-bin',shim:state+'/new-bin/same-sesh'},false);
+            assert(read(profileTarget)==='# existing config\n','declining PATH setup leaves the user profile alone');
+        } finally { ask=originalAsk; }
         pathSetup({bin:state+'/new-bin',shim:state+'/new-bin/same-sesh'},true);
         assert(ObjC.unwrap(fm.destinationOfSymbolicLinkAtPathError(home+'/.zshrc',null))===profileTarget,'PATH setup preserves profile symlink');
         pathSetup({bin:state+'/new-bin',shim:state+'/new-bin/same-sesh'},true);
