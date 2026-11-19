@@ -1,4 +1,11 @@
 $ErrorActionPreference = 'Stop'
+# Model a shell that ran a release before PATH setup was added.
+if (-not ('TabResumeNative' -as [type])) {
+    Add-Type 'public static class TabResumeNative { public static string GetCwd(int pid) { return null; } }'
+}
+if (-not ('SameSeshPathNative' -as [type])) {
+    Add-Type 'public static class SameSeshPathNative { public static int Notifications; public static void NotifyEnvironmentChanged() { Notifications++; } }'
+}
 . "$PSScriptRoot\same-sesh.ps1" -Command help 6>$null
 
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) ("same-sesh-tests-" + [guid]::NewGuid())
@@ -22,6 +29,9 @@ function New-TestSession([string]$Id, [string]$Cwd, [int]$ProcessId) {
 }
 
 try {
+    $notifications = [SameSeshPathNative]::Notifications
+    Send-PathChangeNotification
+    Assert-Equal ([SameSeshPathNative]::Notifications) ($notifications + 1) 'PATH notification works with the old runtime already loaded'
     $initialPath = '%SAME_SESH_OTHER_TOOL%;C:\Tools'
     Assert-Equal (Add-PathEntry $initialPath 'C:\My Repo') ($initialPath + ';C:\My Repo') 'PATH setup preserves existing entries and variable references'
     Assert-Equal (Add-PathEntry $initialPath 'c:\tools\') $initialPath 'PATH setup handles existing entries case-insensitively'

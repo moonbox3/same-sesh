@@ -55,13 +55,6 @@ public static class TabResumeNative {
     [DllImport("kernel32.dll")] static extern IntPtr OpenProcess(int access, bool inherit, int pid);
     [DllImport("kernel32.dll")] static extern bool ReadProcessMemory(IntPtr h, IntPtr addr, byte[] buf, IntPtr size, out IntPtr read);
     [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr h);
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-    static extern IntPtr SendMessageTimeout(IntPtr window, uint message, IntPtr wParam,
-        string lParam, uint flags, uint timeout, out UIntPtr result);
-    public static void NotifyEnvironmentChanged() {
-        UIntPtr result;
-        SendMessageTimeout(new IntPtr(0xffff), 0x001a, IntPtr.Zero, "Environment", 2, 1000, out result);
-    }
     public static string GetCwd(int pid) {
         if (IntPtr.Size != 8) return null;
         IntPtr h = OpenProcess(0x0400 | 0x0010, false, pid);
@@ -584,6 +577,27 @@ function Add-PathEntry([string]$CurrentPath, [string]$Directory) {
     $CurrentPath.TrimEnd(';') + ';' + $Directory
 }
 
+function Send-PathChangeNotification {
+    # PowerShell keeps Add-Type classes loaded for the lifetime of the shell.
+    # Give PATH support its own type so older TabResumeNative builds still work.
+    if (-not ('SameSeshPathNative' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class SameSeshPathNative {
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    static extern IntPtr SendMessageTimeout(IntPtr window, uint message, IntPtr wParam,
+        string lParam, uint flags, uint timeout, out UIntPtr result);
+    public static void NotifyEnvironmentChanged() {
+        UIntPtr result;
+        SendMessageTimeout(new IntPtr(0xffff), 0x001a, IntPtr.Zero, "Environment", 2, 1000, out result);
+    }
+}
+'@
+    }
+    [SameSeshPathNative]::NotifyEnvironmentChanged()
+}
+
 function Install-OnPath([string]$Directory, [switch]$Accept) {
     if ((Add-PathEntry $env:Path $Directory) -eq $env:Path) { return }
     $manual = "To run same-sesh from any folder, add $Directory to your user PATH manually."
@@ -604,9 +618,10 @@ function Install-OnPath([string]$Directory, [switch]$Accept) {
         if ($updated -cne $current) {
             $kind = if ($null -eq $current) { [Microsoft.Win32.RegistryValueKind]::String } else { $environment.GetValueKind('Path') }
             $environment.SetValue('Path', $updated, $kind)
-            [TabResumeNative]::NotifyEnvironmentChanged()
         }
     } finally { $environment.Dispose() }
+    # A prior install may have written PATH before its notification failed.
+    Send-PathChangeNotification
     Write-Host 'PATH is configured. Close and reopen Windows Terminal to use same-sesh.'
 }
 
