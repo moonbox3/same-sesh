@@ -163,6 +163,15 @@ try {
     Assert-Equal (Read-NamedSnapshot 'BEFORE DEPLOY').tabs[0].sessionId $second 'Named lookup ignores case'
     Assert-Equal ([IO.File]::ReadAllText($LastFile)) $previous 'Named save leaves last snapshot alone'
     Assert-Equal @(Get-AllSnapshots).Count 1 'Named save leaves numbered history alone'
+    $list = (Show-SnapshotList 6>&1) -join "`n"
+    Assert-Equal ($list -match 'Before deploy' -and $list -match 'Reopen these') $true 'List includes both kinds of snapshot'
+    $automaticFile = $LastFile
+    $LastFile = Join-Path $StateDir 'missing.json'
+    try {
+        $list = (Show-SnapshotList 6>&1) -join "`n"
+        Assert-Equal ($list -match 'Named snapshots:' -and $list -match 'Before deploy') $true 'List includes a named-only store'
+        Assert-Equal ($list -match 'No snapshot yet') $false 'Named-only store is not reported empty'
+    } finally { $LastFile = $automaticFile }
     $duplicateRejected = $false
     try { $null = Save-Snapshot -SnapshotName 'before deploy' } catch { $duplicateRejected = $_.Exception.Message -like 'Snapshot name already exists*' }
     Assert-Equal $duplicateRejected $true 'Duplicate names are rejected'

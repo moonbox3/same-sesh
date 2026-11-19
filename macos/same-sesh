@@ -381,6 +381,13 @@ function namedSnapshot(name) {
     if (!exists(path)) throw Error('No snapshot named: ' + name);
     return snapshotFile(path);
 }
+function showNamedSnapshots(named) {
+    if (!named.length) return;
+    console.log('Named snapshots:');
+    named.forEach(function(s) {
+        console.log('  ' + String(s.name || '').replace(/[^A-Za-z0-9 _-]/g,'') + ' | ' + s.takenAt + ' (' + s.tabs.length + ' terminals)');
+    });
+}
 function select(all, currentEpoch, marker, index) {
     if (!all.length) return null;
     if (index !== null) {
@@ -725,11 +732,7 @@ function run(args) {
     }
     if (command === 'history') {
         snapshots().reverse().forEach(function(s,i) { console.log(i + ': ' + s.takenAt + ' — ' + s.tabs.length + ' terminals'); });
-        var named = snapshots(true).reverse();
-        if (named.length) console.log('Named snapshots:');
-        named.forEach(function(s) {
-            console.log('  ' + String(s.name || '').replace(/[^A-Za-z0-9 _-]/g,'') + ' | ' + s.takenAt + ' (' + s.tabs.length + ' terminals)');
-        });
+        showNamedSnapshots(snapshots(true).reverse());
         return;
     }
     if (command !== 'list' && command !== 'restore') throw Error('Unknown command: ' + command);
@@ -737,7 +740,14 @@ function run(args) {
         if (dry) return restore(namedSnapshot(name),true,true);
         return locked(function() { restore(namedSnapshot(name),false,true); },true);
     }
+    if (command === 'list') {
+        var automatic = snapshots();
+        var preview = automatic.length ? select(automatic,epoch(),(read(state + '/restored-epoch.txt') || '').trim(),index) : null;
+        var named = snapshots(true).reverse();
+        if (preview || !named.length) show(preview);
+        showNamedSnapshots(named);
+        return;
+    }
     var selected = select(snapshots(),epoch(),(read(state + '/restored-epoch.txt') || '').trim(),index);
-    if (command === 'list') show(selected);
-    else locked(function() { restore(selected,dry); });
+    locked(function() { restore(selected,dry); });
 }

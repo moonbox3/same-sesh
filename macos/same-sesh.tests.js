@@ -57,6 +57,24 @@ function run(args) {
         assert(new Date(start).toISOString() === '2026-11-13T07:41:15.000Z','Claude procStart parsed in UTC');
         assert(Math.abs(parseProcessDate('Fri Nov 13 07:40:15 2026')-start)>1000,'stale PID timestamp rejected');
         var tabA={tool:'copilot',sessionId:idA,cwd:state},tabB={tool:'copilot',sessionId:idB,cwd:state};
+        var originalLog=console.log, listOutput=[];
+        console.log=function(message) { listOutput.push(message); };
+        try {
+            cli([]);
+            assert(listOutput.join('\n').indexOf('No snapshot saved.')>=0,'empty store is reported');
+            save([tabA],'old','Test only');
+            listOutput=[];
+            cli([]);
+            var defaultList=listOutput.join('\n');
+            listOutput=[];
+            cli(['list']);
+            assert(defaultList===listOutput.join('\n') && /Named snapshots:\n  Test only/.test(defaultList),
+                'default and explicit list show a named-only store');
+            assert(defaultList.indexOf('No snapshot saved.')<0,'named-only store is not reported empty');
+        } finally {
+            console.log=originalLog;
+            fm.removeItemAtPathError(namedPath('Test only'),null);
+        }
         var old={version:1,epoch:'old',takenAt:'2026-11-12T01:00:00Z',tabs:[tabA,tabB]};
         var shrinking={version:1,epoch:'old',takenAt:'2026-11-12T01:01:00Z',tabs:[tabA]};
         var fresh={version:1,epoch:'new',takenAt:'2026-11-13T01:00:00Z',tabs:[tabB]};

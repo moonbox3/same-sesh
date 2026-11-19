@@ -380,6 +380,13 @@ def named_snapshots():
     return sorted(filter(None, map(load_snapshot, paths)), key=timestamp, reverse=True)
 
 
+def show_named_snapshots(named):
+    if named:
+        print("Named snapshots:")
+        for snap in named:
+            print(f'  {terminal_text(snap.get("name", ""))} | {snap["takenAt"]} ({len(snap["tabs"])} panes)')
+
+
 def snapshot(name=None):
     path = named_path(name) if name is not None else None
     if path is not None:
@@ -747,11 +754,7 @@ def main():
         elif args.command == "history":
             for i, snap in enumerate(snapshots()):
                 print(f'{i}: {snap["takenAt"]} ({len(snap["tabs"])} panes)')
-            named = named_snapshots()
-            if named:
-                print("Named snapshots:")
-                for snap in named:
-                    print(f'  {terminal_text(snap.get("name", ""))} | {snap["takenAt"]} ({len(snap["tabs"])} panes)')
+            show_named_snapshots(named_snapshots())
         elif args.command == "restore":
             def run():
                 named = args.name is not None
@@ -768,7 +771,11 @@ def main():
             else:
                 locked(run)
         else:
-            show(load_snapshot(STATE / "last.json"))
+            snap = load_snapshot(STATE / "last.json")
+            named = named_snapshots()
+            if snap or not named:
+                show(snap)
+            show_named_snapshots(named)
     except KeyboardInterrupt:
         parser.exit(130)
     except (OSError, ValueError, subprocess.SubprocessError) as error:

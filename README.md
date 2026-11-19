@@ -23,7 +23,7 @@ cd same-sesh
 | Terminal | cmux, Terminal.app, iTerm2, Ghostty | Windows Terminal | Windows Terminal tabs running WSL, or tmux inside WSL |
 | Set up automatic saves | `./same-sesh setup` | `.\same-sesh.cmd install` | `./same-sesh install` |
 | Check watcher and last save | `./same-sesh status` | `.\same-sesh.cmd status` | `./same-sesh status` |
-| List saved sessions | `./same-sesh` | `.\same-sesh.cmd` | `./same-sesh` |
+| List saved sessions and named snapshots | `./same-sesh list` | `.\same-sesh.cmd list` | `./same-sesh list` |
 | Preview restore | `./same-sesh restore --dry-run` | `.\same-sesh.cmd restore -DryRun` | `./same-sesh restore --dry-run` |
 | Restore after a restart | `./same-sesh restore` | `.\same-sesh.cmd restore` | `./same-sesh restore` |
 | [Save a named snapshot](#save-a-named-snapshot) | `./same-sesh snapshot --name release` | `.\same-sesh.cmd snapshot -Name release` | `./same-sesh snapshot --name release` |
@@ -65,8 +65,9 @@ terminals, or new tmux windows for saved tmux panes.
 
 ## Save a named snapshot
 
-Use a name for a group of sessions you want to come back to later. Use
-`history` to see your named snapshots and their save dates.
+Use a name for a group of sessions you want to come back to later. Run
+`list` (or run same-sesh with no arguments) to see the current restore
+preview and your named snapshots. Use `history` for older automatic saves.
 
 Put names with spaces in quotes, as in `"Before deploy"`.
 You can add `--dry-run` (Windows: `-DryRun`) to preview a named restore.

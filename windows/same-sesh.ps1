@@ -2,7 +2,7 @@
 same-sesh: remember which AI CLI sessions were open in which terminal tabs,
 and reopen them after a restart.
 
-  same-sesh              show what would be restored (where you left off)
+  same-sesh [list]       show what would be restored and list named snapshots
   same-sesh snapshot     record the current tabs once (-Name NAME to keep a named snapshot)
   same-sesh restore      reopen tabs (-DryRun to preview, -Index N or -Name NAME to choose)
   same-sesh history      list older snapshots
@@ -565,6 +565,32 @@ function Show-WatcherStatus {
     }
 }
 
+function Show-NamedSnapshots {
+    $directory = Join-Path $StateDir 'named'
+    if (-not (Test-Path -LiteralPath $directory)) { return $false }
+    $saved = @(Get-ChildItem -LiteralPath $directory -Filter 'snapshot-*.json' -File |
+        ForEach-Object { Read-Snapshot $_.FullName } | Sort-Object when -Descending)
+    if (-not $saved.Count) { return $false }
+    Write-Host 'Named snapshots:'
+    foreach ($s in $saved) {
+        $label = $s.name -replace '[^A-Za-z0-9 _-]', ''
+        Write-Host ("  {0} | {1:yyyy-MM-dd HH:mm} ({2} tabs)" -f $label, $s.when.ToLocalTime(), @($s.tabs).Count)
+    }
+    return $true
+}
+
+function Show-SnapshotList {
+    $s = Select-Snapshot
+    if ($s) {
+        Show-Snapshot $s
+        Write-Host '  Reopen these with: same-sesh restore' -ForegroundColor DarkGray
+    }
+    $hasNamed = Show-NamedSnapshots
+    if (-not $s -and -not $hasNamed) {
+        Write-Host 'No snapshot yet. Run: same-sesh snapshot' -ForegroundColor Yellow
+    }
+}
+
 # --- Commands ---------------------------------------------------------------
 $named = $PSBoundParameters.ContainsKey('Name')
 if ($named) {
@@ -582,11 +608,7 @@ switch ($Command) {
         $s = Save-Snapshot
         if ($s) { Show-Snapshot (Read-Snapshot $LastFile) } else { Write-Host 'No terminal tabs open; nothing recorded.' -ForegroundColor Yellow }
     }
-    'list' {
-        $s = Select-Snapshot
-        if ($s) { Show-Snapshot $s; Write-Host '  Reopen these with: same-sesh restore' -ForegroundColor DarkGray }
-        else { Write-Host 'No snapshot yet. Run: same-sesh snapshot' -ForegroundColor Yellow }
-    }
+    'list' { Show-SnapshotList }
     'history' {
         $i = 0
         foreach ($s in (Get-AllSnapshots | Sort-Object when -Descending)) {
@@ -594,16 +616,7 @@ switch ($Command) {
             Write-Host ("  #{0,-3} {1,-10} {2}   {3}" -f $i, (Format-Ago $s.when), $s.when.ToLocalTime().ToString('ddd HH:mm'), $tools)
             $i++
         }
-        $directory = Join-Path $StateDir 'named'
-        if (Test-Path -LiteralPath $directory) {
-            $saved = @(Get-ChildItem -LiteralPath $directory -Filter 'snapshot-*.json' -File |
-                ForEach-Object { Read-Snapshot $_.FullName } | Sort-Object when -Descending)
-            if ($saved.Count) { Write-Host 'Named snapshots:' }
-            foreach ($s in $saved) {
-                $label = $s.name -replace '[^A-Za-z0-9 _-]', ''
-                Write-Host ("  {0} | {1:yyyy-MM-dd HH:mm} ({2} tabs)" -f $label, $s.when.ToLocalTime(), @($s.tabs).Count)
-            }
-        }
+        $null = Show-NamedSnapshots
         Write-Host '  Restore with: same-sesh restore -Index N or -Name NAME' -ForegroundColor DarkGray
     }
     'restore' { if ($named) { Restore-Snapshot -SnapshotName $Name } else { Restore-Snapshot } }
